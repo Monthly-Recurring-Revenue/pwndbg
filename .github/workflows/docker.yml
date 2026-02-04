@@ -64,7 +64,7 @@ jobs:
           docker buildx build \
             --load \
             --cache-from type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-amd64 \
-            ${{ github.event_name == 'push' && format('--cache-to type=registry,ref=ghcr.io/pwndbg/cache:{0}-amd64,mode=max', matrix.image) || '' }} \
+            --cache-to type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-amd64,mode=max \
             -f ${{ matrix.dockerfile }} \
             --build-arg image=${{ matrix.base }} \
             -t ghcr.io/pwndbg/pwndbg:${{ matrix.image }}-amd64 \
@@ -145,7 +145,7 @@ jobs:
           docker buildx build \
             --load \
             --cache-from type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-arm64 \
-            ${{ github.event_name == 'push' && format('--cache-to type=registry,ref=ghcr.io/pwndbg/cache:{0}-arm64,mode=max', matrix.image) || '' }} \
+            --cache-to type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-arm64,mode=max \
             -f ${{ matrix.dockerfile }} \
             --build-arg image=${{ matrix.base }} \
             -t ghcr.io/pwndbg/pwndbg:${{ matrix.image }}-arm64 \
