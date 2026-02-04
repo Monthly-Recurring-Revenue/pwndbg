@@ -47,6 +47,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
+        if: github.event_name == 'push'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
@@ -58,6 +59,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker Buildx ${{ matrix.image }} (cache-enabled)
+        if: github.event_name == 'push'
         run: |
           docker buildx build \
             --load \
@@ -71,7 +73,7 @@ jobs:
 
       - name: Run Tests (GDB, DBG-GDB, DBG-LLDB in parallel) on ${{ matrix.image }}
         run: |
-          docker compose run -T --rm ${{ matrix.image }} bash -c '
+          docker compose run -T --rm -v $(pwd):/pwndbg ${{ matrix.image }} bash -c '
             set -euo pipefail
             # Needed to prevent race conditions - prebuild binaries and create libpython symlink
             make -C /pwndbg/tests/binaries/host -j4 all
@@ -126,6 +128,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
+        if: github.event_name == 'push'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
@@ -137,6 +140,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker Buildx ${{ matrix.image }} (cache-enabled)
+        if: github.event_name == 'push'
         run: |
           docker buildx build \
             --load \
@@ -150,7 +154,7 @@ jobs:
 
       - name: Run Tests (Cross, DBG-GDB, DBG-LLDB in parallel) on ${{ matrix.image }}
         run: |
-          docker compose run -T --rm ${{ matrix.image }} bash -c '
+          docker compose run -T --rm -v $(pwd):/pwndbg ${{ matrix.image }} bash -c '
             set -euo pipefail
             # Needed to prevent race conditions - prebuild binaries
             make -C /pwndbg/tests/binaries/host -j4 all
