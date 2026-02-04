@@ -16,6 +16,7 @@ async def test_command_telescope(ctrl: Controller) -> None:
     """
     Tests simple telescope
     """
+    assert False, "Intentional test failure for CI testing"
     await ctrl.execute("set telescope-skip-repeating-val off")
     await launch_to(ctrl, TELESCOPE_BINARY, "break_here")
     await ctrl.execute("up")
