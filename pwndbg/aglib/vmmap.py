@@ -14,6 +14,7 @@ import pwndbg.lib.memory
 from pwndbg.dbg_mod import MemoryMap
 from pwndbg.lib.arch import Platform
 from pwndbg.lib.config import PARAM_BOOLEAN
+from pwndbg.lib.config import PARAM_ENUM
 from pwndbg.lib.memory import Page
 
 pwndbg.config.add_param(
@@ -21,6 +22,30 @@ pwndbg.config.add_param(
     True,
     "show relative paths by default in vmmap",
     param_class=PARAM_BOOLEAN,
+)
+
+vmmap_cache_mode = pwndbg.config.add_param(
+    "vmmap-cache-mode",
+    "auto",
+    "vmmap caching mode: auto (recommended), off, or always",
+    help_docstring="""
+Controls how vmmap data is cached for performance optimization.
+
+- **auto** (default, recommended): Vmmap is cached until process start or new
+  library load (objfile event). This provides a good balance - fast stepping
+  while still refreshing when the memory layout actually changes. Use
+  `vmmap --refresh` after mmap/munmap syscalls if needed.
+
+- **off**: Vmmap is never automatically fetched. You must run `vmmap` command
+  manually to see memory map info. Context display won't show region labels
+  or colors. Fastest option but least convenient.
+
+- **always**: Vmmap is refreshed on every stop (original behavior). Always
+  shows fresh data but significantly slower on macOS (~150-270ms per stop
+  due to LLDB's GetMemoryRegions() being slow).
+""",
+    param_class=PARAM_ENUM,
+    enum_sequence=["auto", "off", "always"],
 )
 
 
@@ -41,7 +66,8 @@ def _refine_memory_map(pages: MemoryMap) -> MemoryMap:
     shared_cache_start = shared_cache.base
     shared_cache_end = shared_cache_start + shared_cache.size
 
-    images = list(shared_cache.images_sorted)
+    # images_sorted is already a cached list, no need to convert
+    images = shared_cache.images_sorted
     images_base = [image[1] for image in images]
 
     ptrsize: int = pwndbg.aglib.arch.ptrsize
@@ -103,17 +129,63 @@ def _refine_memory_map(pages: MemoryMap) -> MemoryMap:
     return type(pages)(final_pages)
 
 
-@pwndbg.lib.cache.cache_until("start", "stop")
-def get_memory_map() -> MemoryMap:
+# Track if we've shown the "off" mode warning
+_vmmap_off_warning_shown = False
+
+
+@pwndbg.lib.cache.cache_until("start", "objfile")
+def _get_memory_map_cached() -> MemoryMap:
+    """Internal cached vmmap fetch. Use get_memory_map() instead."""
     return _refine_memory_map(pwndbg.dbg.selected_inferior().vmmap())
 
 
-@pwndbg.lib.cache.cache_until("start", "stop")
+def get_memory_map() -> MemoryMap:
+    """
+    Get the memory map for the current inferior.
+
+    Behavior depends on the `vmmap-cache-mode` config setting:
+    - auto (default): Cached until process start or new library load (objfile).
+    - off: Returns empty MemoryMap (fastest, use `vmmap` command to fetch manually).
+    - always: Always fetches fresh data (slowest, original behavior).
+
+    Use `vmmap --refresh` to force a refresh regardless of mode.
+
+    Returns:
+        MemoryMap object containing memory pages
+    """
+    global _vmmap_off_warning_shown
+
+    mode = str(vmmap_cache_mode)
+
+    if mode == "off":
+        # Don't auto-fetch, return empty map
+        if not _vmmap_off_warning_shown:
+            import pwndbg.color.message as M
+
+            print(
+                M.warn(
+                    "vmmap-cache-mode is 'off'. Run 'vmmap' to manually fetch memory map, "
+                    "or 'set vmmap-cache-mode auto' to enable automatic fetching."
+                )
+            )
+            _vmmap_off_warning_shown = True
+        return MemoryMap([])
+
+    if mode == "always":
+        # Clear cache to force refresh on every call
+        pwndbg.lib.cache.clear_cache(pwndbg.lib.cache.CacheUntilEvent.OBJFILE)
+
+    # Reset warning flag when we actually fetch
+    _vmmap_off_warning_shown = False
+
+    return _get_memory_map_cached()
+
+
 def get() -> tuple[pwndbg.lib.memory.Page, ...]:
+    """Get all memory pages. Respects vmmap-cache-mode setting."""
     return tuple(get_memory_map().ranges())
 
 
-@pwndbg.lib.cache.cache_until("start", "stop")
 def find(address: int | pwndbg.dbg_mod.Value | None) -> pwndbg.lib.memory.Page | None:
     if address is None:
         return None

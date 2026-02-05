@@ -434,9 +434,15 @@ class DyldSharedCache:
         self._images_base = self.addr + pwndbg.aglib.memory.u32(self.addr + images_offset)
         self.image_count = pwndbg.aglib.memory.u32(self.addr + images_offset + 4)
 
+        # Cache the images list to avoid re-reading memory on every access
+        # This is a significant performance optimization for vmmap on macOS
+        self._cached_images: list[tuple[bytes, int]] | None = None
+        self._cached_images_sorted: list[tuple[bytes, int]] | None = None
+
         # Check whether the images are sorted by loading address.
+        # Use the cached list to avoid iterating twice
         self._images_sorted_by_address = all(
-            a[1] <= b[1] for a, b in itertools.pairwise(self.images)
+            a[1] <= b[1] for a, b in itertools.pairwise(self._get_images_list())
         )
 
     def _header_size(self) -> int:
@@ -563,8 +569,17 @@ class DyldSharedCache:
             self.addr + pwndbg.aglib.memory.u32(self._images_base + index * 0x20 + 0x18)
         )
 
-    @property
-    def images(self) -> Generator[tuple[bytes, int]]:
+    def _get_images_list(self) -> list[tuple[bytes, int]]:
+        """
+        Get the list of images, caching the result for performance.
+
+        This is a significant optimization - reading from memory and parsing
+        the image data is expensive, and this can be called many times during
+        vmmap processing on macOS.
+        """
+        if self._cached_images is not None:
+            return self._cached_images
+
         # This is a little convoluted, but this function is quite hot and
         # calling the debugger can be quite slow, so pulling in the whole array
         # at once goes a really long way.
@@ -573,35 +588,48 @@ class DyldSharedCache:
         # slow as calling LLDB an extra time on every iteration.
         data = pwndbg.aglib.memory.read(self._images_base, 0x20 * self.image_count)
 
+        images = []
         for i in range(self.image_count):
             base = i * 0x20
-            yield (
-                pwndbg.aglib.memory.string(
-                    self.addr + struct.unpack("<I", data[base + 0x18 : base + 0x1C])[0]
-                ),
-                struct.unpack("<Q", data[base : base + 8])[0] + self.slide,
+            images.append(
+                (
+                    pwndbg.aglib.memory.string(
+                        self.addr + struct.unpack("<I", data[base + 0x18 : base + 0x1C])[0]
+                    ),
+                    struct.unpack("<Q", data[base : base + 8])[0] + self.slide,
+                )
             )
 
+        self._cached_images = images
+        return images
+
     @property
-    def images_sorted(self) -> Generator[tuple[bytes, int]]:
-        "Same as images, but guaranteed to be sorted by increasing base address"
+    def images(self) -> Generator[tuple[bytes, int]]:
+        """Generate the list of images in the shared cache."""
+        yield from self._get_images_list()
+
+    @property
+    def images_sorted(self) -> list[tuple[bytes, int]]:
+        """
+        Same as images, but guaranteed to be sorted by increasing base address.
+
+        Returns a cached list for performance (not a generator).
+        """
+        if self._cached_images_sorted is not None:
+            return self._cached_images_sorted
+
         if self._images_sorted_by_address:
             # The images are naturally sorted by increasing base address.
-            #
-            # This should be true the _vast_ majority of the time, and perhaps
-            # even all the time. Just connect the generators.
-            yield from self.images
+            # This should be true the vast majority of the time.
+            self._cached_images_sorted = self._get_images_list()
         else:
             # The images are sorted in some other order.
-            #
-            # This should be very rare, but we shoulnd't fail if it happens.
-            # Unlike the other cases in which we have to choose whether to fail
-            # at or gracefully handle a weird condition, libmacho doesn't seem
-            # to rely on this being the case.
-            images = list(self.images)
+            # This should be very rare, but we shouldn't fail if it happens.
+            images = self._get_images_list().copy()
             images.sort(key=lambda image: image[1])
+            self._cached_images_sorted = images
 
-            yield from iter(images)
+        return self._cached_images_sorted
 
     def is_address_in_shared_cache(self, addr: int) -> int:
         """
