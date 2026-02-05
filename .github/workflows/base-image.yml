@@ -87,11 +87,13 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Persist uv/cargo cache mounts across runs
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
+          builder: ${{ steps.buildx.outputs.name }}
           cache-map: |
             {
               "uv-cache-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
