@@ -104,7 +104,17 @@ jobs:
         with:
           builder: ${{ steps.buildx.outputs.name }}
           cache-dir: cache-mount-${{ matrix.platform_base.tag_name }}
-          dockerfile: Dockerfile.base-apt
+          cache-map: |
+            {
+              "uv-cache-${{ matrix.platform_base.tag_name }}": {
+                "target": "/root/.cache/uv",
+                "id": "uv-cache-${{ matrix.platform_base.tag_name }}"
+              },
+              "cargo-cache-${{ matrix.platform_base.tag_name }}": {
+                "target": "/root/.cargo/registry",
+                "id": "cargo-cache-${{ matrix.platform_base.tag_name }}"
+              }
+            }
           skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
       - name: Build Docker image
