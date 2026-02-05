@@ -90,15 +90,22 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Persist uv/cargo cache mounts across runs
+      - name: Cache Docker build mounts
+        uses: actions/cache@v4
+        id: cache
+        with:
+          path: cache-mount-${{ matrix.platform_base.tag_name }}
+          key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock', 'Dockerfile.base-apt') }}
+          restore-keys: |
+            buildkit-${{ matrix.platform_base.tag_name }}-
+
+      - name: Inject/extract cache mounts to/from BuildKit
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
           builder: ${{ steps.buildx.outputs.name }}
-          cache-map: |
-            {
-              "uv-cache-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
-              "cargo-cache-${{ matrix.platform_base.tag_name }}": "/root/.cargo/registry"
-            }
+          cache-dir: cache-mount-${{ matrix.platform_base.tag_name }}
+          dockerfile: Dockerfile.base-apt
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
       - name: Build Docker image
         run: |
