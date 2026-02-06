@@ -87,35 +87,16 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        id: buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Cache Docker build mounts
-        uses: actions/cache@v4
-        id: cache
+      - name: Cache dance setup
+        uses: reproducible-containers/buildkit-cache-dance@v3.1.0
         with:
-          path: cache-mount-${{ matrix.platform_base.tag_name }}
-          key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock', 'Dockerfile.base-apt') }}
-          restore-keys: |
-            buildkit-${{ matrix.platform_base.tag_name }}-
-
-      - name: Inject/extract cache mounts to/from BuildKit
-        uses: reproducible-containers/buildkit-cache-dance@v3
-        with:
-          builder: ${{ steps.buildx.outputs.name }}
-          cache-dir: cache-mount-${{ matrix.platform_base.tag_name }}
           cache-map: |
             {
-              "uv-cache-${{ matrix.platform_base.tag_name }}": {
-                "target": "/root/.cache/uv",
-                "id": "uv-cache-${{ matrix.platform_base.tag_name }}"
-              },
-              "cargo-cache-${{ matrix.platform_base.tag_name }}": {
-                "target": "/root/.cargo/registry",
-                "id": "cargo-cache-${{ matrix.platform_base.tag_name }}"
-              }
+              "uv-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
+              "cargo-${{ matrix.platform_base.tag_name }}": "/root/.cargo/registry"
             }
-          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
       - name: Build Docker image
         run: |
@@ -123,7 +104,6 @@ jobs:
             --progress=plain \
             --platform ${{ matrix.platform_base.platform }} \
             --build-arg image=${{ matrix.platform_base.base_image }} \
-            --build-arg CACHE_SUFFIX=-${{ matrix.platform_base.tag_name }} \
             --cache-from type=registry,ref=ghcr.io/monthly-recurring-revenue/base-apt:cache-${{ matrix.platform_base.tag_name }} \
             -f ./Dockerfile.base-apt \
             -t ghcr.io/monthly-recurring-revenue/base-apt:latest-${{ matrix.platform_base.tag_name }} \
@@ -136,7 +116,6 @@ jobs:
             --progress=plain \
             --platform ${{ matrix.platform_base.platform }} \
             --build-arg image=${{ matrix.platform_base.base_image }} \
-            --build-arg CACHE_SUFFIX=-${{ matrix.platform_base.tag_name }} \
             --cache-from type=registry,ref=ghcr.io/monthly-recurring-revenue/base-apt:cache-${{ matrix.platform_base.tag_name }} \
             --cache-to type=registry,ref=ghcr.io/monthly-recurring-revenue/base-apt:cache-${{ matrix.platform_base.tag_name }},mode=max \
             -f ./Dockerfile.base-apt \

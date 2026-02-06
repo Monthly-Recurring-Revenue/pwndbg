@@ -56,9 +56,8 @@ RUN python3 -m venv /venv && \
 
 WORKDIR /pwndbg
 
-ARG CACHE_SUFFIX=""
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache${CACHE_SUFFIX},sharing=locked \
-    --mount=type=cache,target=/root/.cargo/registry,id=cargo-cache${CACHE_SUFFIX},sharing=locked \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     . /venv/bin/activate && \
