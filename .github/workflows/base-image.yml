@@ -87,15 +87,26 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Cache dance setup
-        uses: reproducible-containers/buildkit-cache-dance@v3.1.0
+      - name: Cache build mounts
+        uses: actions/cache@v4
         with:
+          path: cache-mount
+          key: cache-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            cache-${{ matrix.platform_base.tag_name }}-
+
+      - name: Inject/extract build cache
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-dir: cache-mount
           cache-map: |
             {
-              "uv-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
-              "cargo-${{ matrix.platform_base.tag_name }}": "/root/.cargo/registry"
+              "uv": "/root/.cache/uv",
+              "cargo": "/root/.cargo/registry"
             }
 
       - name: Build Docker image
