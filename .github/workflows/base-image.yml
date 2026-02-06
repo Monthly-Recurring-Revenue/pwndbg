@@ -87,21 +87,28 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Restore build cache
+      - name: Cache for Docker cache mounts
+        id: cache
         uses: actions/cache@v4
         with:
-          path: |
-            uv-${{ matrix.platform_base.tag_name }}
-            cargo-${{ matrix.platform_base.tag_name }}
-          key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
-          restore-keys: |
-            buildkit-${{ matrix.platform_base.tag_name }}-
+          path: cache-mount
+          key: buildkit-cache-${{ matrix.platform_base.tag_name }}
+          save-always: true
 
-      - name: Inject/extract build cache
-        uses: reproducible-containers/buildkit-cache-dance@v3.1.2
+      - name: Delete stale cache entry
+        if: steps.cache.outputs.cache-hit == 'true'
+        run: gh actions-cache delete "buildkit-cache-${{ matrix.platform_base.tag_name }}" --confirm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Docker cache mounts
+        uses: reproducible-containers/buildkit-cache-dance@v3
         with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-dir: cache-mount
           cache-map: |
             {
               "uv-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
