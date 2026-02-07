@@ -100,9 +100,15 @@ jobs:
           restore-keys: |
             buildkit-${{ matrix.platform_base.tag_name }}-
 
-      - name: Delete stale cache entry
-        if: steps.cache.outputs.cache-hit != 'true' && steps.cache.outputs.cache-matched-key
-        run: gh actions-cache delete "${{ steps.cache.outputs.cache-matched-key }}" --confirm
+      - name: Delete stale cache entries
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          gh actions-cache list \
+            --key "buildkit-${{ matrix.platform_base.tag_name }}-" \
+            --json key -q '.[].key' | while read -r key; do
+            echo "Deleting stale cache: $key"
+            gh actions-cache delete "$key" --confirm || true
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
