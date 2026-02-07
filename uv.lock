@@ -1860,7 +1860,7 @@ provides-extras = ["lldb", "gdb"]
 dev = [
     { name = "sortedcontainers-stubs", specifier = ">=2.4.3,<3" },
     { name = "types-gdb", specifier = ">=12.1.4.20240704,<13" },
-    { name = "types-psutil", specifier = ">=7.1.3.20251127,<8" },
+    { name = "types-psutil", specifier = ">=7.1.3.20251125,<8" },
     { name = "types-pygments", specifier = ">=2.19.0.20250809,<3" },
     { name = "types-requests", specifier = ">=2.32.4.20250809,<3" },
     { name = "types-tabulate", specifier = ">=0.9.0.20240106,<0.10" },
