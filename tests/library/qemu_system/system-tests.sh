@@ -291,14 +291,14 @@ test_system() {
         echo "Failing tests: ${FAILED_TESTS[@]}"
         echo ""
         if [ ${PRESERVE_QEMU_IMAGE} -eq 0 ]; then
-            pkill -P $QEMU_PID
+            pkill -P $QEMU_PID 2>/dev/null; kill $QEMU_PID 2>/dev/null
         else
-            echo "Preserving qemu image for debugging purposes. Kill with 'pkill -P $QEMU_PID'"
+            echo "Preserving qemu image for debugging purposes. Kill with 'pkill -P $QEMU_PID 2>/dev/null; kill $QEMU_PID 2>/dev/null'"
         fi
         exit 1
     fi
 
-    pkill -P $QEMU_PID
+    pkill -P $QEMU_PID 2>/dev/null; kill $QEMU_PID 2>/dev/null
 
 }
 
@@ -353,6 +353,11 @@ else
             BG_PIDS+=($!)
         fi
     done
+
+    echo ""
+    echo "Running ${#BG_PIDS[@]} kernel test configurations in parallel..."
+    echo "Output will be displayed when all tests complete."
+    echo ""
 
     FINAL_EXIT=0
     for i in "${!BG_PIDS[@]}"; do
