@@ -37,14 +37,11 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: Cache jemalloc
+      - name: Cache jemalloc build
         uses: actions/cache@v5
         with:
-          path: |
-            /usr/local/lib/libjemalloc*
-            /usr/local/bin/jemalloc-config
-            /usr/local/include/jemalloc/
-          key: jemalloc-5.3.0-${{ matrix.os }}
+          path: /tmp/jemalloc-5.3.0
+          key: jemalloc-build-5.3.0-${{ matrix.os }}
 
       - name: Install dependencies
         run: |
@@ -114,14 +111,11 @@ jobs:
           path: ~/.cache/pip
           key: ${{ matrix.os }}-cache-pip
 
-      - name: Cache jemalloc
+      - name: Cache jemalloc build
         uses: actions/cache@v5
         with:
-          path: |
-            /usr/local/lib/libjemalloc*
-            /usr/local/bin/jemalloc-config
-            /usr/local/include/jemalloc/
-          key: jemalloc-5.3.0-ubuntu-22.04
+          path: /tmp/jemalloc-5.3.0
+          key: jemalloc-build-5.3.0-ubuntu-22.04
 
       - name: Setup pwndbg
         run: |
