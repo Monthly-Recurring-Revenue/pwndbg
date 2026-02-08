@@ -61,6 +61,6 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     . /venv/bin/activate && \
-    uv sync --no-install-project --all-groups --all-extras
+    uv sync --locked --no-install-project --all-groups --all-extras
 
 ENV PATH="${PWNDBG_VENV_PATH}/bin:${PATH}"
