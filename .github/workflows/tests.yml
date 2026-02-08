@@ -40,7 +40,9 @@ jobs:
       - name: Cache jemalloc build
         uses: actions/cache@v5
         with:
-          path: /tmp/jemalloc-5.3.0
+          path: |
+            /tmp/jemalloc-5.3.0
+            /usr/local/bin/jemalloc-config
           key: jemalloc-build-5.3.0-${{ matrix.os }}
 
       - name: Install dependencies
@@ -114,7 +116,9 @@ jobs:
       - name: Cache jemalloc build
         uses: actions/cache@v5
         with:
-          path: /tmp/jemalloc-5.3.0
+          path: |
+            /tmp/jemalloc-5.3.0
+            /usr/local/bin/jemalloc-config
           key: jemalloc-build-5.3.0-ubuntu-22.04
 
       - name: Setup pwndbg
