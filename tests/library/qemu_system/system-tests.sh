@@ -45,10 +45,13 @@ help_and_exit() {
     exit 1
 }
 
+ALL_QEMU_PIDS=()
 handle_sigint() {
     echo "Exiting..." >&2
-    echo "Killing QEMU process $QEMU_PID"... >&2
-    pkill -P $QEMU_PID
+    for pid in "${ALL_QEMU_PIDS[@]}"; do
+        echo "Killing QEMU process $pid..." >&2
+        pkill -P "$pid" 2>/dev/null
+    done
     exit 1
 }
 trap handle_sigint SIGINT
@@ -104,21 +107,25 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# Test if the port is already listening, possibly by other qemu instance. This
-# can cause unexpected test failures.
 NETSTAT=$(which netstat 2> /dev/null)
 if [[ -z "${NETSTAT}" ]]; then
     NETSTAT=$(which ss 2> /dev/null)
 fi
 if [[ -z "${NETSTAT}" ]]; then
-    echo "ERROR: netstat/ss not found. Cannot check if port ${GDB_PORT} is already bound." >&2
+    echo "ERROR: netstat/ss not found. Cannot check if ports are already bound." >&2
     exit 1
-else
-    if [[ $(${NETSTAT} -tuln 2> /dev/null | grep ":${GDB_PORT}" | grep -c LISTEN) -ne 0 ]]; then
-        echo "ERROR: Port ${GDB_PORT} appears already bound. Please specify a different port with --gdb-port=<port>" >&2
-        exit 1
-    fi
 fi
+
+check_port() {
+    local port=$1
+    if [[ $(${NETSTAT} -tuln 2> /dev/null | grep ":${port}" | grep -c LISTEN) -ne 0 ]]; then
+        echo "ERROR: Port ${port} appears already bound." >&2
+        return 1
+    fi
+    return 0
+}
+
+check_port ${GDB_PORT} || exit 1
 
 run_gdb() {
     local arch="$1"
@@ -251,10 +258,9 @@ test_system() {
     fi
     echo ""
 
-    # NOTE: If you run simultaneous tests or left an image lying around via -Q, this
-    # will hang due to failure to obtain lock. But will see the error message...
     "./run-qemu-system.sh" --kernel="${kernel_type}-${kernel_version}-${arch}" --gdb-port="${GDB_PORT}" -- "${qemu_args[@]}" > /dev/null &
     QEMU_PID=$!
+    ALL_QEMU_PIDS+=($QEMU_PID)
     init_gdb "${kernel_type}" "${kernel_version}" "${arch}"
     start=$(date +%s)
 
@@ -296,19 +302,67 @@ test_system() {
 
 }
 
-for vmlinux in "${VMLINUX_LIST[@]}"; do
-    KERNEL=$(echo "${vmlinux}" | sed "s/vmlinux-//")
-    # extract architecture as last dash-separated group of the kernels name
-    ARCH="${KERNEL##*-}"
-    KERNEL_VERSION=$(echo ${KERNEL} | grep -oP "\d+\.\d+(\.\d+)?(-lts)?")
-    KERNEL_TYPE=$(echo ${KERNEL} | sed "s/-${KERNEL_VERSION}-${ARCH}//")
-    QEMU_ARGS=()
+# Run kernel test configurations in parallel for faster CI.
+# Each instance uses a unique GDB port and QEMU runs with snapshot=on
+# to allow concurrent access to the same rootfs image.
+#
+# In PDB mode, fall back to sequential execution since interactive
+# debugging requires a single foreground process.
+if [ $PDB -eq 1 ]; then
+    for vmlinux in "${VMLINUX_LIST[@]}"; do
+        KERNEL=$(echo "${vmlinux}" | sed "s/vmlinux-//")
+        ARCH="${KERNEL##*-}"
+        KERNEL_VERSION=$(echo ${KERNEL} | grep -oP "\d+\.\d+(\.\d+)?(-lts)?")
+        KERNEL_TYPE=$(echo ${KERNEL} | sed "s/-${KERNEL_VERSION}-${ARCH}//")
 
-    test_system "${KERNEL_TYPE}" "${KERNEL_VERSION}" "${ARCH}" ${QEMU_ARGS}
+        test_system "${KERNEL_TYPE}" "${KERNEL_VERSION}" "${ARCH}"
 
-    if [[ "${ARCH}" == @("x86_64") ]]; then
-        # additional test with extra QEMU flags
-        QEMU_ARGS+=(-cpu qemu64,+la57)
-        test_system "${KERNEL_TYPE}" "${KERNEL_VERSION}" "${ARCH}" "${QEMU_ARGS[@]}"
-    fi
-done
+        if [[ "${ARCH}" == @("x86_64") ]]; then
+            test_system "${KERNEL_TYPE}" "${KERNEL_VERSION}" "${ARCH}" -cpu qemu64,+la57
+        fi
+    done
+else
+    BASE_PORT=${GDB_PORT}
+    PORT_OFFSET=0
+    BG_PIDS=()
+    BG_LOGS=()
+
+    for vmlinux in "${VMLINUX_LIST[@]}"; do
+        KERNEL=$(echo "${vmlinux}" | sed "s/vmlinux-//")
+        ARCH="${KERNEL##*-}"
+        KERNEL_VERSION=$(echo ${KERNEL} | grep -oP "\d+\.\d+(\.\d+)?(-lts)?")
+        KERNEL_TYPE=$(echo ${KERNEL} | sed "s/-${KERNEL_VERSION}-${ARCH}//")
+
+        CURRENT_PORT=$((BASE_PORT + PORT_OFFSET))
+        PORT_OFFSET=$((PORT_OFFSET + 1))
+        check_port $CURRENT_PORT || exit 1
+        LOG_FILE=$(mktemp)
+        BG_LOGS+=("$LOG_FILE")
+
+        (GDB_PORT=$CURRENT_PORT test_system "${KERNEL_TYPE}" "${KERNEL_VERSION}" "${ARCH}") > "$LOG_FILE" 2>&1 &
+        BG_PIDS+=($!)
+
+        if [[ "${ARCH}" == @("x86_64") ]]; then
+            CURRENT_PORT=$((BASE_PORT + PORT_OFFSET))
+            PORT_OFFSET=$((PORT_OFFSET + 1))
+            check_port $CURRENT_PORT || exit 1
+            LOG_FILE=$(mktemp)
+            BG_LOGS+=("$LOG_FILE")
+
+            (GDB_PORT=$CURRENT_PORT test_system "${KERNEL_TYPE}" "${KERNEL_VERSION}" "${ARCH}" -cpu qemu64,+la57) > "$LOG_FILE" 2>&1 &
+            BG_PIDS+=($!)
+        fi
+    done
+
+    FINAL_EXIT=0
+    for i in "${!BG_PIDS[@]}"; do
+        wait ${BG_PIDS[$i]}
+        if [ $? -ne 0 ]; then
+            FINAL_EXIT=1
+        fi
+        cat "${BG_LOGS[$i]}"
+        rm -f "${BG_LOGS[$i]}"
+    done
+
+    exit $FINAL_EXIT
+fi

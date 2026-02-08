@@ -73,7 +73,7 @@ ROOTFS=$(echo ${TESTING_KERNEL_IMAGES_DIR}/*-${ARCH}.img)
 QEMU_ARGS+=(
     -kernel $KERNEL
     -nographic
-    -drive "file=$ROOTFS,if=virtio,format=qcow2"
+    -drive "file=$ROOTFS,if=virtio,format=qcow2,snapshot=on"
     -S -gdb tcp::${GDB_PORT}
     "${QEMU_ARGS_EXT[@]}"
 )
