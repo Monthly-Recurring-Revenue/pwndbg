@@ -46,15 +46,24 @@ help_and_exit() {
 }
 
 ALL_QEMU_PIDS=()
+
+cleanup_qemu() {
+    for pid in "${ALL_QEMU_PIDS[@]}"; do
+        pkill -P "$pid" 2>/dev/null
+        kill "$pid" 2>/dev/null
+    done
+    # Kill any remaining QEMU processes started by this script
+    # This catches orphaned grandchild processes (e.g. via uv run)
+    pkill -f "qemu-system-" 2>/dev/null || true
+}
+
 handle_sigint() {
     echo "Exiting..." >&2
-    for pid in "${ALL_QEMU_PIDS[@]}"; do
-        echo "Killing QEMU process $pid..." >&2
-        pkill -P "$pid" 2>/dev/null
-    done
+    cleanup_qemu
     exit 1
 }
 trap handle_sigint SIGINT
+trap cleanup_qemu EXIT
 
 if [[ $# -gt 3 ]]; then
     help_and_exit
