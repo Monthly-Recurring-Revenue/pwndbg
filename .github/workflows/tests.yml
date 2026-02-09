@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        type: [qemu-user-tests, qemu-system-tests, tests, unit-tests]
+        type: [tests, qemu-system-tests]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     env:
@@ -62,24 +62,41 @@ jobs:
           sudo sysctl -w kernel.yama.ptrace_scope=0
 
       - name: Run tests
-        if: matrix.type == 'unit-tests'
-        run: |
-          ./unit-tests.sh
-
-      - name: Run GDB Tests
         if: matrix.type == 'tests'
         run: |
-          ./tests.sh --nix -d gdb -g gdb
+          LOG_UNIT=$(mktemp)
+          LOG_GDB=$(mktemp)
+          LOG_DBG=$(mktemp)
+          LOG_CROSS=$(mktemp)
 
-      - name: Run DBG Tests on GDB
-        if: matrix.type == 'tests'
-        run: |
-          ./tests.sh --nix -d gdb -g dbg
+          ./unit-tests.sh > "$LOG_UNIT" 2>&1 &
+          PID_UNIT=$!
+          ./tests.sh --nix -d gdb -g gdb > "$LOG_GDB" 2>&1 &
+          PID_GDB=$!
+          ./tests.sh --nix -d gdb -g dbg > "$LOG_DBG" 2>&1 &
+          PID_DBG=$!
+          ./tests.sh --nix -d gdb -g cross-arch-user > "$LOG_CROSS" 2>&1 &
+          PID_CROSS=$!
 
-      - name: Run cross-arch tests
-        if: matrix.type == 'qemu-user-tests'
-        run: |
-          ./tests.sh --nix -d gdb -g cross-arch-user
+          FAILED=0
+          for pid in $PID_UNIT $PID_GDB $PID_DBG $PID_CROSS; do
+            wait $pid || FAILED=1
+          done
+
+          echo "=== Unit Tests ==="
+          cat "$LOG_UNIT"
+          echo ""
+          echo "=== GDB Tests ==="
+          cat "$LOG_GDB"
+          echo ""
+          echo "=== DBG Tests ==="
+          cat "$LOG_DBG"
+          echo ""
+          echo "=== Cross-Arch Tests ==="
+          cat "$LOG_CROSS"
+
+          rm -f "$LOG_UNIT" "$LOG_GDB" "$LOG_DBG" "$LOG_CROSS"
+          exit $FAILED
 
       - name: Set up cache for QEMU images
         if: matrix.type == 'qemu-system-tests'
