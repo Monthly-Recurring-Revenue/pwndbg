@@ -1,5 +1,5 @@
 # Adding a Configuration Option
-Configuration options are also called "parameters" in the source. Let's take a look at an existing parameter `gdb-workaround-stop-event` defined in `pwndbg/gdblib/events.py`.
+Configuratioasdfsfdn options are also called "parameters" in the source. Let's take a look at an existing parameter `gdb-workaround-stop-event` defined in `pwndbg/gdblib/events.py`.
 ```python
 DISABLED = "disabled"
 DISABLED_DEADLOCK = "disabled-deadlock"
