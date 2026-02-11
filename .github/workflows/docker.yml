@@ -4,7 +4,15 @@ on:
   push:
     branches:
       - dev
+    paths-ignore:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '*.md'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '*.md'
 
 concurrency:
   # Pushes (dev): queue sequentially (prevent cache corruption)
@@ -17,27 +25,7 @@ permissions:
   packages: write
 
 jobs:
-  # Use dorny/paths-filter instead of on.paths so that skipped jobs report
-  # as passed to branch protection, allowing docs-only PRs to merge.
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            code:
-              - '**'
-              - '!mkdocs.yml'
-              - '!docs/**'
-              - '!*.md'
-
   docker_x86-64:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     name: docker_x86-64 (${{ matrix.image }})
     strategy:
       fail-fast: false
