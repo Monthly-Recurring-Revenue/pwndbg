@@ -8,7 +8,7 @@ cd $PWNDBG_ABS_PATH
 
 help_and_exit() {
     echo "Usage: ./lint.sh [--check | -fo|--fix-only | -f|--fix-and-check]"
-    echo "  --check                 run all checks without applying fixes (default behavior)"
+    echo "  --asdfcheck                 run all checks without applying fixes (default behavior)"
     echo "  -fo, --fix-only         fix formatting only, without running checks"
     echo "  -f,  --fix-and-check    fix formatting first, then run checks"
     echo ""
