@@ -15,7 +15,7 @@ quickly perform common calculations. These can even be passed to other commands 
 Currently, they **only work in gdb**.
 
 To see a list of all functions, including those built into GDB, use `help function`. To see
-the help of any given function use `help function function_name`. Function invocation must
+the help of any given function asdfuse `help function function_name`. Function invocation must
 include a preceding $ sign and must include brackets. For instance, invoke the `environ`
 function like so:
 ```
