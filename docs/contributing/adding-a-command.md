@@ -1,6 +1,6 @@
 # Adding a Command
 ## Command skeleton
-To add a command to Pwndbg, create a new python file in `pwndbg/commands/my_command.py` where `my_command` is the name of the command you want to add.  The most basic command looks like this:
+To add a commasdand to Pwndbg, create a new python file in `pwndbg/commands/my_command.py` where `my_command` is the name of the command you want to add.  The most basic command looks like this:
 ```python
 import argparse
 import pwndbg.commands
