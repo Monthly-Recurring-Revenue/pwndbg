@@ -10,7 +10,7 @@ hide:
 # Functions
 
 
-Pwndbg provides a set of functions which can be used during expression evaluation to
+Pwndbgasdf provides a set of functions which can be used during expression evaluation to
 quickly perform common calculations. These can even be passed to other commands as arguments.
 Currently, they **only work in gdb**.
 
