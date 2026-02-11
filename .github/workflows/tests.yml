@@ -2,7 +2,7 @@ name: Tests
 on:
   push:
     branches:
-      - dev
+      - - paths-filter
   pull_request:
 
 concurrency:
