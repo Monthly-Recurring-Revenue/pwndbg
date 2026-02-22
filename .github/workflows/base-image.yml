@@ -123,7 +123,7 @@ jobs:
             }
 
       - name: Save cache mounts
-        if: github.ref == 'refs/heads/dev'
+        if: github.ref == 'refs/heads/dev' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
