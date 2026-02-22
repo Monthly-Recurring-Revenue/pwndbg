@@ -21,9 +21,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
+  actions: write
   contents: read
   packages: write
-  actions: write
 
 jobs:
   base-image:
@@ -90,9 +90,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Restore Docker cache mounts
+      - name: Restore cache mounts
         id: cache
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v4
         with:
           path: |
             uv-${{ matrix.platform_base.tag_name }}
@@ -101,7 +101,7 @@ jobs:
           restore-keys: |
             buildkit-${{ matrix.platform_base.tag_name }}-
 
-      - name: Delete stale cache
+      - name: Delete stale cache entries
         if: steps.cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
         run: |
           gh cache list \
@@ -113,8 +113,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Inject/extract cache mounts
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Inject/extract build cache
         uses: reproducible-containers/buildkit-cache-dance@v3.3.1
         with:
           cache-map: |
@@ -122,6 +121,15 @@ jobs:
               "uv-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
               "cargo-${{ matrix.platform_base.tag_name }}": "/root/.cargo/registry"
             }
+
+      - name: Save cache mounts
+        if: github.ref == 'refs/heads/dev'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            uv-${{ matrix.platform_base.tag_name }}
+            cargo-${{ matrix.platform_base.tag_name }}
+          key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
 
       - name: Build Docker image
         run: |
@@ -153,7 +161,7 @@ jobs:
     needs: base-image
 
     env:
-      IMAGE: ghcr.io/pwndbg/base-apt
+      IMAGE: ghcr.io/monthly-recurring-revenue/base-apt
 
     steps:
       - name: Login to GitHub Container Registry
