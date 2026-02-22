@@ -97,16 +97,28 @@ jobs:
           path: |
             uv-${{ matrix.platform_base.tag_name }}
             cargo-${{ matrix.platform_base.tag_name }}
+<<<<<<< HEAD
+          key: buildkit-v3-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
+=======
           key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
+>>>>>>> b536a46c3ee2bcc39d1afa545f6b6c38f86a3332
           restore-keys: |
+<<<<<<< HEAD
+            buildkit-v3-${{ matrix.platform_base.tag_name }}-
+=======
             buildkit-${{ matrix.platform_base.tag_name }}-
+>>>>>>> b536a46c3ee2bcc39d1afa545f6b6c38f86a3332
 
       - name: Delete stale cache entries
         if: steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: |
           gh cache list \
+<<<<<<< HEAD
+            --key "buildkit-v3-${{ matrix.platform_base.tag_name }}-" \
+=======
             --key "buildkit-${{ matrix.platform_base.tag_name }}-" \
+>>>>>>> b536a46c3ee2bcc39d1afa545f6b6c38f86a3332
             --json key -q '.[].key' | while read -r key; do
             echo "Deleting stale cache: $key"
             gh cache delete "$key"
@@ -114,9 +126,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Inject/extract cache mounts
-        if: steps.cache.outputs.cache-hit != 'true'
-        uses: reproducible-containers/buildkit-cache-dance@v3.3.1
+<<<<<<< HEAD
+      - name: Inject/extract build cache
+        uses: reproducible-containers/buildkit-cache-dance@v3.1.2
+=======
         with:
           cache-map: |
             {
