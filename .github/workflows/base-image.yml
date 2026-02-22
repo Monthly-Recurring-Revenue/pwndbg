@@ -99,7 +99,7 @@ jobs:
             cargo-${{ matrix.platform_base.tag_name }}
           key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
           restore-keys: |
-            buildkit-${{ matrix.platform_base.tag_name }}-
+            buildkitv2-${{ matrix.platform_base.tag_name }}-
 
       - name: Delete stale cache entries
         if: steps.cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
@@ -129,7 +129,7 @@ jobs:
           path: |
             uv-${{ matrix.platform_base.tag_name }}
             cargo-${{ matrix.platform_base.tag_name }}
-          key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
+          key: buildkitv2-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
 
       - name: Build Docker image
         run: |
