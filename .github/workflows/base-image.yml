@@ -92,20 +92,20 @@ jobs:
 
       - name: Restore cache mounts
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             uv-${{ matrix.platform_base.tag_name }}
             cargo-${{ matrix.platform_base.tag_name }}
-          key: buildkit-v3-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
+          key: buildkit-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
           restore-keys: |
-            buildkit-v3-${{ matrix.platform_base.tag_name }}-
+            buildkit-${{ matrix.platform_base.tag_name }}-
 
       - name: Delete stale cache entries
         if: steps.cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
         run: |
           gh cache list \
-            --key "buildkit-v3-${{ matrix.platform_base.tag_name }}-" \
+            --key "buildkit-${{ matrix.platform_base.tag_name }}-" \
             --json key -q '.[].key' | while read -r key; do
             echo "Deleting stale cache: $key"
             gh cache delete "$key"
@@ -114,7 +114,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Inject/extract build cache
-        uses: reproducible-containers/buildkit-cache-dance@v3.1.2
+        uses: reproducible-containers/buildkit-cache-dance@v3.3.1
         with:
           cache-map: |
             {
