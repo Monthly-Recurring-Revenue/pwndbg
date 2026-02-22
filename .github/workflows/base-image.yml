@@ -92,7 +92,7 @@ jobs:
 
       - name: Restore cache mounts
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache@v4
         with:
           path: |
             uv-${{ matrix.platform_base.tag_name }}
@@ -121,15 +121,6 @@ jobs:
               "uv-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
               "cargo-${{ matrix.platform_base.tag_name }}": "/root/.cargo/registry"
             }
-
-      - name: Save cache mounts
-        if: github.ref == 'refs/heads/dev' && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            uv-${{ matrix.platform_base.tag_name }}
-            cargo-${{ matrix.platform_base.tag_name }}
-          key: buildkit-v2-${{ matrix.platform_base.tag_name }}-${{ hashFiles('uv.lock') }}
 
       - name: Build Docker image
         run: |
