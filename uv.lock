@@ -1860,7 +1860,7 @@ provides-extras = ["lldb", "gdb"]
 dev = [
     { name = "sortedcontainers-stubs", specifier = ">=2.4.3,<3" },
     { name = "types-gdb", specifier = ">=12.1.4.20240704,<13" },
-    { name = "types-psutil", specifier = "==7.1.3.20251130" },
+    { name = "types-psutil", specifier = "==7.1.3.20251127" },
     { name = "types-pygments", specifier = ">=2.19.0.20250809,<3" },
     { name = "types-requests", specifier = ">=2.32.4.20250809,<3" },
     { name = "types-tabulate", specifier = ">=0.9.0.20240106,<0.10" },
@@ -2536,11 +2536,11 @@ wheels = [
 
 [[package]]
 name = "types-psutil"
-version = "7.1.3.20251130"
+version = "7.1.3.20251127"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3d/0e/4c0c52099a8b4901d3e8eb5ac12ece32331b96bf87690377fb6c90f85475/types_psutil-7.1.3.20251130.tar.gz", hash = "sha256:7f42e7a7845a93397e430b48a8074a35410d7a436695fd3375ec9b687d8d95f8", size = 24467, upload-time = "2025-11-30T03:18:14.469Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/ef/e24b8298f4d549d50de6c5385e676fa64af58d1b6863eff44290bf11a378/types_psutil-7.1.3.20251127.tar.gz", hash = "sha256:21d74eaca4688ef168aa28181a465dc067cf9d4bb09df949db573f9140f66557", size = 23864, upload-time = "2025-11-27T03:04:32.263Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/9d/353588c1fe06fa267a088a920eaebb0ac5b67f863dba0bff7c7deb4113a2/types_psutil-7.1.3.20251130-py3-none-any.whl", hash = "sha256:e9ccfaa63a1342810dab06c2e40696c843e6f422137868d335ad282b93e468e3", size = 31251, upload-time = "2025-11-30T03:18:13.359Z" },
+    { url = "https://files.pythonhosted.org/packages/36/f1/fc086be0bc6d7bb59ca10006b19efb83f7981e8331fefe22abd072e065ab/types_psutil-7.1.3.20251127-py3-none-any.whl", hash = "sha256:5721b44b33f0798c2330fa8f6c8977101d0deec5301c3d747fc43a0992f5a3ca", size = 28504, upload-time = "2025-11-27T03:04:31.227Z" },
 ]
 
 [[package]]
