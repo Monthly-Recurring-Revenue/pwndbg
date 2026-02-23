@@ -88,7 +88,6 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        id: buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Restore cache mounts
@@ -116,14 +115,13 @@ jobs:
 
       - name: Inject/extract build cache
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: reproducible-containers/buildkit-cache-dance@v3.3.1
+        uses: jackmisbach/buildkit-cache-dance@main
         with:
           cache-map: |
             {
               "uv-${{ matrix.platform_base.tag_name }}": "/root/.cache/uv",
               "cargo-${{ matrix.platform_base.tag_name }}": "/root/.cargo/registry"
             }
-          builder: ${{ steps.buildx.outputs.name }}
           skip-extraction: ${{ github.event_name == 'pull_request' }}
 
       - name: Build Docker image
