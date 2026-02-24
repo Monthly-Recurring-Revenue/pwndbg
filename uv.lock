@@ -1859,7 +1859,7 @@ provides-extras = ["lldb", "gdb"]
 [package.metadata.requires-dev]
 dev = [
     { name = "sortedcontainers-stubs", specifier = ">=2.4.3,<3" },
-    { name = "types-gdb", specifier = "==15.0.0.20250308" },
+    { name = "types-gdb", specifier = "==15.0.0.20250809" },
     { name = "types-psutil", specifier = "==7.1.3.20251127" },
     { name = "types-pygments", specifier = ">=2.19.0.20250809,<3" },
     { name = "types-requests", specifier = ">=2.32.4.20250809,<3" },
@@ -2527,11 +2527,11 @@ wheels = [
 
 [[package]]
 name = "types-gdb"
-version = "15.0.0.20250308"
+version = "15.0.0.20250809"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d2/3a/2eb640b1e35b968a14312d17cdb78ef7202520abf7e03be334c99d24802e/types_gdb-15.0.0.20250308.tar.gz", hash = "sha256:3903cb00137f0921338a85f1e9eb150e97cf1117b1476c945b35d1918e4b5ec1", size = 20122, upload-time = "2025-03-08T02:22:19.594Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/37/8ed8ea55e20d03473ee09afb46b334f665c4b0bdebbb48d4ac0d8dff9e05/types_gdb-15.0.0.20250809.tar.gz", hash = "sha256:d7a458d5345c7015e33f7210066db17b49cb43b39110c574b564e63cfe74f71d", size = 24555, upload-time = "2025-08-09T03:13:53.152Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/1a/18c87ecbb3af2b15eda2b9255892b824c0e13e02993832b1a37e0f224772/types_gdb-15.0.0.20250308-py3-none-any.whl", hash = "sha256:db834c76c28cf0eb72ccc7461b9446199c942862656ee9eff5c6747891cc0111", size = 23827, upload-time = "2025-03-08T02:22:18.781Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/19/4c426d1fbda4c124a879328d6474b70f22234c6ed3dd8823fa33f998fffb/types_gdb-15.0.0.20250809-py3-none-any.whl", hash = "sha256:899b20f0cddd1f4ec747e56a37628e00ac5b5735a6a5991d4e399aef1c5652bd", size = 30322, upload-time = "2025-08-09T03:13:52.07Z" },
 ]
 
 [[package]]
