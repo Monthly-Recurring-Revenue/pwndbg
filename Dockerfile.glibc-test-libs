@@ -29,7 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gawk \
     texinfo \
     python3 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/include/x86_64-linux-gnu/asm /usr/include/asm \
+    && ln -sf /usr/include/x86_64-linux-gnu/gnu /usr/include/gnu \
+    && ln -sf /usr/include/x86_64-linux-gnu/bits /usr/include/bits \
+    && ln -sf /usr/include/x86_64-linux-gnu/sys /usr/include/sys
 
 COPY scripts/build-one-glibc.sh /build-one-glibc.sh
 RUN chmod +x /build-one-glibc.sh
