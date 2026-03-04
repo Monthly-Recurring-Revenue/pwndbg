@@ -17,7 +17,8 @@
 #   libpthread-X.XX.so      (only for glibc < 2.34)
 #   libpthread.so.0         (symlink, only for glibc < 2.34)
 
-FROM debian:13 AS base-builder
+# Use Debian 12 (GCC 12) - newer GCC versions (13/14) break older glibc builds
+FROM debian:12 AS base-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \

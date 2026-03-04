@@ -1,7 +1,8 @@
 name: Heap Libc Version Tests
 
-# Tests pwndbg heap commands against multiple glibc versions using
-# pre-built glibc shared libraries from ghcr.io/pwndbg/glibc-test-libs.
+# Tests pwndbg heap commands against multiple glibc versions.
+# Builds glibc shared libraries (registry-cached, so only new versions take time)
+# and runs heap-specific tests against each version.
 
 on:
   schedule:
@@ -25,6 +26,8 @@ on:
       - 'pwndbg/aglib/heap/**'
       - 'pwndbg/libc/**'
       - 'tests/library/dbg/tests/test_heap*'
+      - 'Dockerfile.glibc-test-libs'
+      - 'scripts/build-one-glibc.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,7 +35,7 @@ concurrency:
 
 permissions:
   contents: read
-  packages: read
+  packages: write
   issues: write
 
 jobs:
@@ -62,26 +65,42 @@ jobs:
       github.event_name == 'push' ||
       needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Login to GHCR (for pulling glibc-test-libs)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download glibc test artifacts
-        run: |
-          chmod +x scripts/download-test-glibcs.sh
-          scripts/download-test-glibcs.sh
+      # Build glibc test libraries image. Registry cache means already-built
+      # versions are instant (~30s total). Only new versions trigger a real build.
+      - name: Build glibc test libraries
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.glibc-test-libs
+          push: ${{ github.event_name != 'pull_request' }}
+          load: true
+          tags: ghcr.io/pwndbg/glibc-test-libs:latest
+          cache-from: type=registry,ref=ghcr.io/pwndbg/glibc-test-libs:buildcache
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=registry,ref=ghcr.io/pwndbg/glibc-test-libs:buildcache,mode=max' || '' }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Extract glibc test artifacts
+        run: |
+          CID=$(docker create ghcr.io/pwndbg/glibc-test-libs:latest)
+          docker cp "${CID}:/glibcs/." tests/binaries/host/glibcs/
+          docker rm "${CID}" > /dev/null
+          echo "Extracted glibc artifacts:"
+          ls tests/binaries/host/glibcs/
 
       - name: Run heap version tests
         run: |
@@ -113,7 +132,6 @@ jobs:
               `Commit: ${context.sha}`,
             ].join('\n');
 
-            // Check if there's already an open issue with this title
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
