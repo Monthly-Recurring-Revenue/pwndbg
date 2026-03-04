@@ -1,0 +1,50 @@
+name: Build Glibc Test Libraries
+
+# Builds a Docker image containing pre-compiled glibc shared libraries
+# for testing pwndbg heap commands against multiple glibc versions.
+#
+# This only needs to run when:
+# - A new glibc version is added to the Dockerfile
+# - The build script is modified
+# - Triggered manually
+
+on:
+  workflow_dispatch:
+  push:
+    branches: libc-testing
+    paths:
+      - 'Dockerfile.glibc-test-libs'
+      - 'scripts/build-one-glibc.sh'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push glibc test libraries image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.glibc-test-libs
+          push: true
+          tags: |
+            ghcr.io/pwndbg/glibc-test-libs:latest
+            ghcr.io/pwndbg/glibc-test-libs:${{ github.sha }}
+          cache-from: type=registry,ref=ghcr.io/pwndbg/glibc-test-libs:buildcache
+          cache-to: type=registry,ref=ghcr.io/pwndbg/glibc-test-libs:buildcache,mode=max

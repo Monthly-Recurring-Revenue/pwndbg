@@ -67,12 +67,51 @@ ifeq ($(HAVE_MUSL),yes)
 ALL_MUSL_TARGETS += heap_musl_dyn.native.out heap_musl_static.native.out
 endif
 
+# --- Glibc multi-version heap test binaries ---
+# These are only built when the corresponding glibc artifacts exist in glibcs/<ver>/.
+# The artifacts are downloaded by scripts/download-test-glibcs.sh.
+GLIBC_TEST_VERSIONS := 2.35 2.37 2.38 2.39 2.41 2.42 2.43
+
+# Check which glibc versions have artifacts available
+AVAILABLE_GLIBC_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
+    $(if $(wildcard $(PWD)/glibcs/$(ver)/ld-linux-x86-64.so.2),$(ver)))
+
+# Generate build rules for each available glibc version (x86-64 only)
+ifeq ($(HOST_ARCH),x86-64)
+define GLIBC_HEAP_TARGETS
+heap_malloc_chunk.glibc-$(1).out: heap_malloc_chunk.native.c
+	@echo "[+] Building '$$@' against glibc $(1)"
+	$${ZIGCC} $${CFLAGS} -g -O0 -Wno-nonnull -Wno-unused-result \
+	-target x86_64-linux-gnu.$(1) \
+	-Wl,-rpath=$$(PWD)/glibcs/$(1): \
+	-Wl,--dynamic-linker=$$(PWD)/glibcs/$(1)/ld-linux-x86-64.so.2 \
+	-o $$@ $$< -pthread -lpthread
+
+heap_bins.glibc-$(1).out: heap_bins.native.c
+	@echo "[+] Building '$$@' against glibc $(1)"
+	$${ZIGCC} $${CFLAGS} -w \
+	-target x86_64-linux-gnu.$(1) \
+	-Wl,-rpath=$$(PWD)/glibcs/$(1): \
+	-Wl,--dynamic-linker=$$(PWD)/glibcs/$(1)/ld-linux-x86-64.so.2 \
+	-o $$@ $$< -pthread -lpthread
+endef
+
+$(foreach ver,$(AVAILABLE_GLIBC_VERSIONS),$(eval $(call GLIBC_HEAP_TARGETS,$(ver))))
+
+ALL_GLIBC_VERSION_TARGETS := $(foreach ver,$(AVAILABLE_GLIBC_VERSIONS),\
+    heap_malloc_chunk.glibc-$(ver).out heap_bins.glibc-$(ver).out)
+else
+ALL_GLIBC_VERSION_TARGETS :=
+endif
+# --- End glibc multi-version targets ---
+
 CUSTOM_TARGETS = heap_find_fake_fast.native.out reference_bin_pie.native.out reference_bin_nopie.native.out reference_bin_nopie.i386.out symbol_1600_and_752.native.out initialized_heap.x86-64.out initialized_heap_big.i386.out linked_lists.native.out onegadget.x86-64.out onegadget.i386.out heap_musl_dyn.native.out heap_musl_static.native.out gosample.i386.out gosample.x86-64.out
 NATIVE_CUSTOM_TARGETS  := $(filter %.native.out %.$(HOST_ARCH).out %.$(HOST_ARCH_32).out,$(CUSTOM_TARGETS))
 
 ALL_TARGETS := $(LINKED_C) $(LINKED_ASM) $(LINKED_GO) $(NATIVE_CUSTOM_TARGETS) \
     $(ALL_JEMALLOC_TARGETS) \
-    $(ALL_MUSL_TARGETS)
+    $(ALL_MUSL_TARGETS) \
+    $(ALL_GLIBC_VERSION_TARGETS)
 
 all: $(ALL_TARGETS)
 

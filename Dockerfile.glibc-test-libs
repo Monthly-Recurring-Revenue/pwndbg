@@ -1,0 +1,67 @@
+# Dockerfile for building glibc shared libraries for testing pwndbg's heap commands
+# against multiple glibc versions.
+#
+# Usage:
+#   docker buildx build -f Dockerfile.glibc-test-libs -t ghcr.io/pwndbg/glibc-test-libs:latest .
+#   docker push ghcr.io/pwndbg/glibc-test-libs:latest
+#
+# The final image is a minimal scratch image containing only the glibc artifacts:
+#   /glibcs/2.35/  /glibcs/2.37/  /glibcs/2.38/  ...
+#
+# Each directory contains:
+#   ld-X.XX.so              (dynamic linker)
+#   ld-linux-x86-64.so.2    (symlink -> ld-X.XX.so)
+#   libc-X.XX.so            (stripped libc)
+#   libc.so.6               (symlink -> libc-X.XX.so)
+#   .debug/libc-X.XX.so     (separate debug info)
+#   libpthread-X.XX.so      (only for glibc < 2.34)
+#   libpthread.so.0         (symlink, only for glibc < 2.34)
+
+FROM debian:13 AS base-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+    ca-certificates \
+    bison \
+    gawk \
+    texinfo \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/build-one-glibc.sh /build-one-glibc.sh
+RUN chmod +x /build-one-glibc.sh
+
+# Build each glibc version in a separate layer for caching.
+# Each RUN produces /glibcs/<version>/ with the artifacts.
+
+FROM base-builder AS build-2.35
+RUN /build-one-glibc.sh 2.35
+
+FROM base-builder AS build-2.37
+RUN /build-one-glibc.sh 2.37
+
+FROM base-builder AS build-2.38
+RUN /build-one-glibc.sh 2.38
+
+FROM base-builder AS build-2.39
+RUN /build-one-glibc.sh 2.39
+
+FROM base-builder AS build-2.41
+RUN /build-one-glibc.sh 2.41
+
+FROM base-builder AS build-2.42
+RUN /build-one-glibc.sh 2.42
+
+FROM base-builder AS build-2.43
+RUN /build-one-glibc.sh 2.43
+
+# Final minimal image with just the artifacts
+FROM scratch
+COPY --from=build-2.35 /glibcs/2.35 /glibcs/2.35
+COPY --from=build-2.37 /glibcs/2.37 /glibcs/2.37
+COPY --from=build-2.38 /glibcs/2.38 /glibcs/2.38
+COPY --from=build-2.39 /glibcs/2.39 /glibcs/2.39
+COPY --from=build-2.41 /glibcs/2.41 /glibcs/2.41
+COPY --from=build-2.42 /glibcs/2.42 /glibcs/2.42
+COPY --from=build-2.43 /glibcs/2.43 /glibcs/2.43

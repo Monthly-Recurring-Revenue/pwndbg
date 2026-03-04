@@ -1,0 +1,140 @@
+name: Heap Libc Version Tests
+
+# Tests pwndbg heap commands against multiple glibc versions using
+# pre-built glibc shared libraries from ghcr.io/pwndbg/glibc-test-libs.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+  workflow_dispatch:
+  push:
+    branches: libc-testing
+    paths:
+      - 'pwndbg/aglib/heap/**'
+      - 'pwndbg/libc/**'
+      - 'tests/library/dbg/tests/test_heap*'
+      - 'tests/library/dbg/tests/test_vis_heap*'
+      - 'tests/library/dbg/tests/test_find_fake*'
+      - 'tests/library/dbg/tests/test_try_free*'
+      - 'tests/binaries/host/Makefile'
+      - 'Dockerfile.glibc-test-libs'
+      - 'scripts/build-one-glibc.sh'
+      - 'scripts/download-test-glibcs.sh'
+  pull_request:
+    paths:
+      - 'pwndbg/aglib/heap/**'
+      - 'pwndbg/libc/**'
+      - 'tests/library/dbg/tests/test_heap*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+  issues: write
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@668c092af3649c4b664c54e4b704aa46782f6f7c
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            code:
+              - '**'
+              - '!mkdocs.yml'
+              - '!docs/**'
+              - '!*.md'
+
+  heap-glibc-versions:
+    needs: changes
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Login to GHCR (for pulling glibc-test-libs)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download glibc test artifacts
+        run: |
+          chmod +x scripts/download-test-glibcs.sh
+          scripts/download-test-glibcs.sh
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run heap version tests
+        run: |
+          docker compose run -T --rm --quiet-pull -v $(pwd):/pwndbg ubuntu24.04 bash -c '
+            set -euo pipefail
+
+            # Build glibc-version-specific test binaries
+            make -C /pwndbg/tests/binaries/host -j4 all
+
+            # Run only the glibc version tests
+            echo "Running glibc multi-version heap tests..."
+            ./tests.sh -d gdb -g dbg test_heap_glibc_versions
+          '
+
+      - name: Create issue on scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Heap glibc version tests failing (scheduled run)';
+            const body = [
+              '## Scheduled heap glibc version tests failed',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'This may indicate a regression in heap command support for one or more glibc versions.',
+              'Please check the failing tests and fix any issues.',
+              '',
+              `Commit: ${context.sha}`,
+            ].join('\n');
+
+            // Check if there's already an open issue with this title
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-failure',
+            });
+
+            const existing = issues.find(i => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Still failing: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['ci-failure'],
+              });
+            }
