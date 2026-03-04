@@ -31,20 +31,35 @@ tar xf "/tmp/glibc-${VERSION}.tar.gz" -C "${SRC_DIR}" --strip-components=1
 echo "[2/5] Configuring..."
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
-"${SRC_DIR}/configure" \
+CONFIGURE_LOG="/tmp/glibc-configure-${VERSION}.log"
+if ! "${SRC_DIR}/configure" \
     --prefix=/opt/glibc \
     --disable-werror \
     --enable-shared \
     --with-headers=/usr/include \
-    CFLAGS="-g -O2"
+    CFLAGS="-g -O2" > "${CONFIGURE_LOG}" 2>&1; then
+    echo "CONFIGURE FAILED for glibc ${VERSION}. Last 30 lines:"
+    tail -30 "${CONFIGURE_LOG}"
+    exit 2
+fi
+echo "Configure completed successfully."
 
-# Build
+# Build (redirect verbose output to log file to avoid hitting CI log limits)
 echo "[3/5] Building (this takes a few minutes)..."
-make -j"$(nproc)"
+BUILD_LOG="/tmp/glibc-build-${VERSION}.log"
+if ! make -j"$(nproc)" > "${BUILD_LOG}" 2>&1; then
+    echo "BUILD FAILED for glibc ${VERSION}. Last 50 lines:"
+    tail -50 "${BUILD_LOG}"
+    exit 2
+fi
+echo "Build completed successfully."
 
 # Install to staging directory
 echo "[4/5] Installing to staging..."
-make install DESTDIR="${INSTALL_DIR}"
+if ! make install DESTDIR="${INSTALL_DIR}" > /dev/null 2>&1; then
+    echo "INSTALL FAILED for glibc ${VERSION}."
+    exit 2
+fi
 
 # Package artifacts
 echo "[5/5] Packaging artifacts..."
