@@ -36,16 +36,15 @@ cd "${BUILD_DIR}"
     --disable-werror \
     --enable-shared \
     --with-headers=/usr/include \
-    CFLAGS="-g -O2" \
-    2>&1 | tail -5
+    CFLAGS="-g -O2"
 
 # Build
 echo "[3/5] Building (this takes a few minutes)..."
-make -j"$(nproc)" 2>&1 | tail -3
+make -j"$(nproc)"
 
 # Install to staging directory
 echo "[4/5] Installing to staging..."
-make install DESTDIR="${INSTALL_DIR}" 2>&1 | tail -3
+make install DESTDIR="${INSTALL_DIR}"
 
 # Package artifacts
 echo "[5/5] Packaging artifacts..."

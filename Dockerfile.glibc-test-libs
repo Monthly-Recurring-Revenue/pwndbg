@@ -21,6 +21,7 @@ FROM debian:13 AS base-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    linux-libc-dev \
     wget \
     ca-certificates \
     bison \
