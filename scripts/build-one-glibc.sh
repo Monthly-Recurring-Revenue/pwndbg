@@ -68,18 +68,16 @@ echo "[5/5] Packaging artifacts..."
 mkdir -p "${OUT_DIR}/.debug"
 
 # Find the actual library files in the install tree
-LIBC_SO=$(find "${INSTALL_DIR}" -name "libc.so.6" -type f 2>/dev/null | head -1)
-if [ -z "${LIBC_SO}" ]; then
-    LIBC_SO=$(find "${INSTALL_DIR}" -name "libc-${VERSION}.so" -type f 2>/dev/null | head -1)
-fi
-if [ -z "${LIBC_SO}" ]; then
-    # In newer glibc, libc.so.6 might be the actual file not a symlink
-    LIBC_SO=$(find "${INSTALL_DIR}" -name "libc.so.6" 2>/dev/null | head -1)
+# Note: libc.so.6 may be a symlink to libc-X.XX.so, so don't use -type f
+LIBC_SO=$(find "${INSTALL_DIR}" -name "libc.so.6" 2>/dev/null | head -1)
+if [ -n "${LIBC_SO}" ]; then
+    # Resolve symlink to get the actual file
+    LIBC_SO=$(readlink -f "${LIBC_SO}")
 fi
 
 LD_SO=$(find "${INSTALL_DIR}" -name "ld-linux-x86-64.so.2" 2>/dev/null | head -1)
-if [ -z "${LD_SO}" ]; then
-    LD_SO=$(find "${INSTALL_DIR}" -name "ld-${VERSION}.so" 2>/dev/null | head -1)
+if [ -n "${LD_SO}" ]; then
+    LD_SO=$(readlink -f "${LD_SO}")
 fi
 
 if [ -z "${LIBC_SO}" ] || [ -z "${LD_SO}" ]; then
