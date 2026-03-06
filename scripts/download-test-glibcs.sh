@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Downloads pre-built glibc test libraries from the Docker image on ghcr.io.
+# Builds glibc test libraries locally using Docker and extracts them.
 #
 # Usage: ./scripts/download-test-glibcs.sh
 #
 # Artifacts are extracted to tests/binaries/host/glibcs/<version>/
-# Skips download if artifacts already exist.
+# Skips build if artifacts already exist.
 
 set -euo pipefail
 
@@ -12,9 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DEST="${REPO_ROOT}/tests/binaries/host/glibcs"
 
-IMAGE="${GLIBC_TEST_LIBS_IMAGE:-ghcr.io/pwndbg/glibc-test-libs:latest}"
-
-# All glibc versions we expect to find in the image
+# All glibc versions we expect
 EXPECTED_VERSIONS=(2.35 2.36 2.37 2.38 2.39 2.40 2.41 2.42 2.43)
 
 # Check if all versions are already present
@@ -31,10 +29,10 @@ if [ "${all_present}" = true ]; then
     exit 0
 fi
 
-echo "Downloading glibc test artifacts from ${IMAGE}..."
-docker pull "${IMAGE}"
+echo "Building glibc test libraries (this may take a while on first run)..."
+docker buildx build -f "${REPO_ROOT}/Dockerfile.glibc-test-libs" -t glibc-test-libs:local --load "${REPO_ROOT}"
 
-CID=$(docker create --entrypoint=/ "${IMAGE}")
+CID=$(docker create --entrypoint=/ glibc-test-libs:local)
 mkdir -p "${DEST}"
 docker cp "${CID}:/glibcs/." "${DEST}/"
 docker rm "${CID}" > /dev/null
