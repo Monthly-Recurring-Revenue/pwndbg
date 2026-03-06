@@ -20,11 +20,19 @@ OUT_DIR="/glibcs/${VERSION}"
 
 echo "=== Building glibc ${VERSION} ==="
 
-# Download source
-echo "[1/5] Downloading glibc-${VERSION}..."
-wget -q --retry-connrefused --waitretry=5 --tries=3 "https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.gz" -O "/tmp/glibc-${VERSION}.tar.gz"
+# Download source (random delay to avoid thundering herd when BuildKit runs stages in parallel)
+DELAY=$((RANDOM % 15))
+echo "[1/5] Downloading glibc-${VERSION} (delay ${DELAY}s)..."
+sleep "${DELAY}"
+TARBALL="/tmp/glibc-${VERSION}.tar.gz"
+URL="https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.gz"
+MIRROR="https://ftpmirror.gnu.org/glibc/glibc-${VERSION}.tar.gz"
+if ! wget -q --retry-connrefused --waitretry=10 --tries=3 --timeout=60 "${URL}" -O "${TARBALL}"; then
+    echo "Primary download failed, trying mirror..."
+    wget -q --retry-connrefused --waitretry=10 --tries=3 --timeout=60 "${MIRROR}" -O "${TARBALL}"
+fi
 mkdir -p "${SRC_DIR}"
-tar xf "/tmp/glibc-${VERSION}.tar.gz" -C "${SRC_DIR}" --strip-components=1
+tar xf "${TARBALL}" -C "${SRC_DIR}" --strip-components=1
 
 # Configure (glibc requires out-of-tree build)
 echo "[2/5] Configuring..."
@@ -130,7 +138,7 @@ if [ "${MINOR}" -lt 34 ]; then
 fi
 
 # Cleanup build artifacts to save space
-rm -rf "${SRC_DIR}" "${BUILD_DIR}" "${INSTALL_DIR}" "/tmp/glibc-${VERSION}.tar.gz"
+rm -rf "${SRC_DIR}" "${BUILD_DIR}" "${INSTALL_DIR}" "${TARBALL}"
 
 echo "=== glibc ${VERSION} built successfully ==="
 ls -la "${OUT_DIR}/"
