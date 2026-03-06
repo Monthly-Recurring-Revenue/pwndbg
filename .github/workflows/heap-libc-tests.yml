@@ -94,7 +94,7 @@ jobs:
           load: true
           tags: ${{ env.GLIBC_IMAGE }}:latest
           cache-from: type=registry,ref=${{ env.GLIBC_IMAGE }}:buildcache
-          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref=ghcr.io/{0}/glibc-test-libs:buildcache,mode=max', github.repository_owner) || '' }}
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=registry,ref=ghcr.io/monthly-recurring-revenue/glibc-test-libs:buildcache,mode=max' || '' }}
 
       - name: Extract glibc test artifacts
         run: |
