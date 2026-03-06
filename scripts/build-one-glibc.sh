@@ -44,47 +44,59 @@ if ! "${SRC_DIR}/configure" \
 fi
 echo "Configure completed successfully."
 
-# Build only the libraries we need (not test/support programs which may fail
-# due to host toolchain vs target glibc version mismatches like arc4random@GLIBC_2.36)
+# Build with -k (keep going) so non-essential targets like support/links-dso-program
+# that fail due to host toolchain mismatches don't block the important libraries
 echo "[3/5] Building (this takes a few minutes)..."
 BUILD_LOG="/tmp/glibc-build-${VERSION}.log"
-if ! make -j"$(nproc)" lib > "${BUILD_LOG}" 2>&1; then
-    echo "BUILD of lib FAILED for glibc ${VERSION}. Last 50 lines:"
-    tail -50 "${BUILD_LOG}"
-    # Fall back to full build with -k (keep going on errors in non-essential targets)
-    echo "Retrying with make -k..."
-    if ! make -j"$(nproc)" -k >> "${BUILD_LOG}" 2>&1; then
-        echo "Full build had errors (expected for old glibc on newer host), continuing with install..."
-    fi
-fi
+make -j"$(nproc)" -k > "${BUILD_LOG}" 2>&1 || echo "Build had non-fatal errors (expected for old glibc on newer host)."
 echo "Build completed."
 
-# Install to staging directory (ignore errors from test programs that failed to build)
+# Install with -k to skip any targets that weren't built
 echo "[4/5] Installing to staging..."
-make install DESTDIR="${INSTALL_DIR}" > /dev/null 2>&1 || true
+make install -k DESTDIR="${INSTALL_DIR}" > /dev/null 2>&1 || true
 
 # Package artifacts
 echo "[5/5] Packaging artifacts..."
 mkdir -p "${OUT_DIR}/.debug"
 
-# Find the actual library files in the install tree
-# Note: libc.so.6 may be a symlink to libc-X.XX.so, so don't use -type f
+# Debug: show what was installed
+echo "Installed lib contents:"
+ls -la "${INSTALL_DIR}/opt/glibc/lib/"* 2>/dev/null | head -20 || true
+echo "Installed lib64 contents (if any):"
+ls -la "${INSTALL_DIR}/opt/glibc/lib64/"* 2>/dev/null | head -10 || true
+
+# Find libc.so.6 in the install tree (may be a symlink)
 LIBC_SO=$(find "${INSTALL_DIR}" -name "libc.so.6" 2>/dev/null | head -1)
 if [ -n "${LIBC_SO}" ]; then
-    # Resolve symlink to get the actual file
     LIBC_SO=$(readlink -f "${LIBC_SO}")
 fi
 
+# Find ld-linux-x86-64.so.2 in install tree, then build tree as fallback
 LD_SO=$(find "${INSTALL_DIR}" -name "ld-linux-x86-64.so.2" 2>/dev/null | head -1)
+if [ -z "${LD_SO}" ]; then
+    # Try ld.so in the install tree (different name)
+    LD_SO=$(find "${INSTALL_DIR}" -name "ld-${VERSION}.so" 2>/dev/null | head -1)
+fi
+if [ -z "${LD_SO}" ]; then
+    # Fallback: grab ld.so directly from the build tree
+    echo "ld not found in install tree, checking build tree..."
+    LD_SO="${BUILD_DIR}/elf/ld.so"
+fi
 if [ -n "${LD_SO}" ]; then
     LD_SO=$(readlink -f "${LD_SO}")
 fi
 
-if [ -z "${LIBC_SO}" ] || [ -z "${LD_SO}" ]; then
-    echo "ERROR: Could not find libc or ld in install tree"
-    find "${INSTALL_DIR}" -name "libc*" -o -name "ld*" | head -20
+if [ -z "${LIBC_SO}" ] || [ -z "${LD_SO}" ] || [ ! -f "${LIBC_SO}" ] || [ ! -f "${LD_SO}" ]; then
+    echo "ERROR: Could not find libc or ld"
+    echo "LIBC_SO=${LIBC_SO:-empty}"
+    echo "LD_SO=${LD_SO:-empty}"
+    find "${INSTALL_DIR}" -name "libc*" -o -name "ld*" 2>/dev/null | head -20
+    find "${BUILD_DIR}" -name "ld.so" -o -name "ld-linux*" 2>/dev/null | head -10
     exit 1
 fi
+
+echo "Found libc: ${LIBC_SO}"
+echo "Found ld: ${LD_SO}"
 
 # Copy the dynamic linker
 cp "${LD_SO}" "${OUT_DIR}/ld-${VERSION}.so"
@@ -103,9 +115,8 @@ ln -sf "libc-${VERSION}.so" "${OUT_DIR}/libc.so.6"
 
 # For glibc < 2.34, libpthread was a separate library
 if [ "${MINOR}" -lt 34 ]; then
-    PTHREAD_SO=$(find "${INSTALL_DIR}" -name "libpthread.so.0" -o -name "libpthread-${VERSION}.so" | head -1)
+    PTHREAD_SO=$(find "${INSTALL_DIR}" -name "libpthread.so.0" -o -name "libpthread-${VERSION}.so" 2>/dev/null | head -1)
     if [ -n "${PTHREAD_SO}" ]; then
-        # Follow symlink to get the actual file
         PTHREAD_REAL=$(readlink -f "${PTHREAD_SO}")
         cp "${PTHREAD_REAL}" "${OUT_DIR}/libpthread-${VERSION}.so"
         ln -sf "libpthread-${VERSION}.so" "${OUT_DIR}/libpthread.so.0"
