@@ -11,7 +11,6 @@
 set -euo pipefail
 
 VERSION="${1:?Usage: $0 <glibc-version>}"
-MAJOR="${VERSION%%.*}"
 MINOR="${VERSION#*.}"
 
 SRC_DIR="/tmp/glibc-src-${VERSION}"
@@ -49,6 +48,13 @@ echo "Configure completed successfully."
 echo "[3/5] Building (this takes a few minutes)..."
 BUILD_LOG="/tmp/glibc-build-${VERSION}.log"
 make -j"$(nproc)" -k > "${BUILD_LOG}" 2>&1 || echo "Build had non-fatal errors (expected for old glibc on newer host)."
+
+# Verify the critical output was actually produced
+if [ ! -f "${BUILD_DIR}/libc.so.6" ] && [ ! -f "${BUILD_DIR}/libc.so" ]; then
+    echo "FATAL: libc.so not produced by build. Last 50 lines of build log:"
+    tail -50 "${BUILD_LOG}"
+    exit 1
+fi
 echo "Build completed."
 
 # Install with -k to skip any targets that weren't built

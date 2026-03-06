@@ -73,8 +73,6 @@ async def test_heap_allocator_setup(ctrl: Controller, glibc_ver: str) -> None:
         f"Expected GlibcMemoryAllocator, got {type(allocator)}"
     )
 
-    ver = glibc_ver_tuple(glibc_ver)
-
     # Verify tcache availability (present since 2.26)
     assert allocator.has_tcache, f"glibc {glibc_ver} should have tcache"
 
@@ -164,8 +162,8 @@ async def test_heap_bins_glibc_version(ctrl: Controller, glibc_ver: str) -> None
         # Since glibc 2.42, freed small-bin-sized chunks go directly to the smallbin
         # instead of going to the unsorted bin first
         fd_chain_len = len(result.bins["all"].fd_chain)
-        assert fd_chain_len <= 1, (
-            f"glibc {glibc_ver}: expected unsorted bin to be empty or have 1 entry (direct smallbin), "
+        assert fd_chain_len == 0, (
+            f"glibc {glibc_ver}: expected unsorted bin to be empty (direct smallbin), "
             f"got {fd_chain_len}"
         )
     else:
