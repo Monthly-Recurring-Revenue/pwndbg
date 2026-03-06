@@ -44,6 +44,9 @@ RUN chmod +x /build-one-glibc.sh
 FROM base-builder AS build-2.35
 RUN /build-one-glibc.sh 2.35
 
+FROM base-builder AS build-2.36
+RUN /build-one-glibc.sh 2.36
+
 FROM base-builder AS build-2.37
 RUN /build-one-glibc.sh 2.37
 
@@ -52,6 +55,9 @@ RUN /build-one-glibc.sh 2.38
 
 FROM base-builder AS build-2.39
 RUN /build-one-glibc.sh 2.39
+
+FROM base-builder AS build-2.40
+RUN /build-one-glibc.sh 2.40
 
 FROM base-builder AS build-2.41
 RUN /build-one-glibc.sh 2.41
@@ -65,9 +71,11 @@ RUN /build-one-glibc.sh 2.43
 # Final minimal image with just the artifacts
 FROM scratch
 COPY --from=build-2.35 /glibcs/2.35 /glibcs/2.35
+COPY --from=build-2.36 /glibcs/2.36 /glibcs/2.36
 COPY --from=build-2.37 /glibcs/2.37 /glibcs/2.37
 COPY --from=build-2.38 /glibcs/2.38 /glibcs/2.38
 COPY --from=build-2.39 /glibcs/2.39 /glibcs/2.39
+COPY --from=build-2.40 /glibcs/2.40 /glibcs/2.40
 COPY --from=build-2.41 /glibcs/2.41 /glibcs/2.41
 COPY --from=build-2.42 /glibcs/2.42 /glibcs/2.42
 COPY --from=build-2.43 /glibcs/2.43 /glibcs/2.43

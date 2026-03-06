@@ -20,7 +20,7 @@ from . import pwndbg_test
 # All glibc versions with pre-built test artifacts.
 # To add a new version: update Dockerfile.glibc-test-libs, rebuild the image,
 # and add the version here.
-GLIBC_VERSIONS = ["2.35", "2.37", "2.38", "2.39", "2.41", "2.42", "2.43"]
+GLIBC_VERSIONS = ["2.35", "2.36", "2.37", "2.38", "2.39", "2.40", "2.41", "2.42", "2.43"]
 
 
 def glibc_ver_tuple(ver: str) -> tuple[int, int]:

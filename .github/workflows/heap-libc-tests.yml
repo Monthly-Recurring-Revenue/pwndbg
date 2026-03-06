@@ -26,8 +26,13 @@ on:
       - 'pwndbg/aglib/heap/**'
       - 'pwndbg/libc/**'
       - 'tests/library/dbg/tests/test_heap*'
+      - 'tests/library/dbg/tests/test_vis_heap*'
+      - 'tests/library/dbg/tests/test_find_fake*'
+      - 'tests/library/dbg/tests/test_try_free*'
+      - 'tests/binaries/host/Makefile'
       - 'Dockerfile.glibc-test-libs'
       - 'scripts/build-one-glibc.sh'
+      - 'scripts/download-test-glibcs.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,45 +44,21 @@ permissions:
   issues: write
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@668c092af3649c4b664c54e4b704aa46782f6f7c
-        id: filter
-        if: github.event_name == 'pull_request'
-        with:
-          predicate-quantifier: 'every'
-          filters: |
-            code:
-              - '**'
-              - '!mkdocs.yml'
-              - '!docs/**'
-              - '!*.md'
-
   heap-glibc-versions:
-    needs: changes
-    if: >-
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
-      needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       GLIBC_IMAGE: ghcr.io/monthly-recurring-revenue/glibc-test-libs
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -86,7 +67,7 @@ jobs:
       # Build glibc test libraries image. Registry cache means already-built
       # versions are instant (~30s total). Only new versions trigger a real build.
       - name: Build glibc test libraries
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: .
           file: Dockerfile.glibc-test-libs
@@ -94,7 +75,7 @@ jobs:
           load: true
           tags: ${{ env.GLIBC_IMAGE }}:latest
           cache-from: type=registry,ref=${{ env.GLIBC_IMAGE }}:buildcache
-          cache-to: ${{ github.event_name != 'pull_request' && 'type=registry,ref=ghcr.io/monthly-recurring-revenue/glibc-test-libs:buildcache,mode=max' || '' }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}:buildcache,mode=max', env.GLIBC_IMAGE) || '' }}
 
       - name: Extract glibc test artifacts
         run: |
@@ -121,7 +102,7 @@ jobs:
 
       - name: Create issue on scheduled failure
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const title = 'Heap glibc version tests failing (scheduled run)';
