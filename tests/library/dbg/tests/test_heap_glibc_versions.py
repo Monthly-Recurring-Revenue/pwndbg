@@ -131,13 +131,12 @@ async def test_heap_bins_glibc_version(ctrl: Controller, glibc_ver: str) -> None
     fastbin_size = allocator._request2size(pwndbg.aglib.memory.u64(addr))
 
     result = allocator.fastbins()
-    assert result is not None
-    assert result.bin_type == BinType.FAST
-
     if ver >= (2, 43):
-        # glibc 2.43 removed fastbins entirely - bins dict should be empty
-        assert len(result.bins) == 0, f"glibc {glibc_ver} should have no fastbins"
+        # glibc 2.43 removed fastbins entirely - fastbins() returns None
+        assert result is None, f"glibc {glibc_ver} should have no fastbins"
     else:
+        assert result is not None
+        assert result.bin_type == BinType.FAST
         assert fastbin_size in result.bins
 
     # Continue to tcache test
