@@ -66,6 +66,8 @@ jobs:
       needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      GLIBC_IMAGE: ghcr.io/monthly-recurring-revenue/glibc-test-libs
     steps:
       - uses: actions/checkout@v6
         with:
@@ -90,13 +92,13 @@ jobs:
           file: Dockerfile.glibc-test-libs
           push: ${{ github.event_name != 'pull_request' }}
           load: true
-          tags: ghcr.io/${{ github.repository_owner }}/glibc-test-libs:latest
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/glibc-test-libs:buildcache
+          tags: ${{ env.GLIBC_IMAGE }}:latest
+          cache-from: type=registry,ref=${{ env.GLIBC_IMAGE }}:buildcache
           cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref=ghcr.io/{0}/glibc-test-libs:buildcache,mode=max', github.repository_owner) || '' }}
 
       - name: Extract glibc test artifacts
         run: |
-          CID=$(docker create ghcr.io/${{ github.repository_owner }}/glibc-test-libs:latest)
+          CID=$(docker create ${{ env.GLIBC_IMAGE }}:latest)
           docker cp "${CID}:/glibcs/." tests/binaries/host/glibcs/
           docker rm "${CID}" > /dev/null
           echo "Extracted glibc artifacts:"
