@@ -22,7 +22,7 @@ echo "=== Building glibc ${VERSION} ==="
 
 # Download source
 echo "[1/5] Downloading glibc-${VERSION}..."
-wget -q "https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.gz" -O "/tmp/glibc-${VERSION}.tar.gz"
+wget -q --retry-connrefused --waitretry=5 --tries=3 "https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.gz" -O "/tmp/glibc-${VERSION}.tar.gz"
 mkdir -p "${SRC_DIR}"
 tar xf "/tmp/glibc-${VERSION}.tar.gz" -C "${SRC_DIR}" --strip-components=1
 
