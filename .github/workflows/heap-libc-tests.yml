@@ -98,7 +98,9 @@ jobs:
 
       - name: Extract glibc test artifacts
         run: |
-          CID=$(docker create ${{ env.GLIBC_IMAGE }}:latest)
+          # scratch image has no entrypoint, so we specify a dummy one for docker create
+          CID=$(docker create --entrypoint=/ ${{ env.GLIBC_IMAGE }}:latest)
+          mkdir -p tests/binaries/host/glibcs
           docker cp "${CID}:/glibcs/." tests/binaries/host/glibcs/
           docker rm "${CID}" > /dev/null
           echo "Extracted glibc artifacts:"
