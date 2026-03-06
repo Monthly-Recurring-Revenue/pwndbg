@@ -70,7 +70,7 @@ endif
 # --- Glibc multi-version heap test binaries ---
 # These are only built when the corresponding glibc artifacts exist in glibcs/<ver>/.
 # The artifacts are downloaded by scripts/download-test-glibcs.sh.
-GLIBC_TEST_VERSIONS := 2.35 2.37 2.38 2.39 2.41 2.42 2.43
+GLIBC_TEST_VERSIONS := 2.35 2.36 2.37 2.38 2.39 2.40 2.41 2.42 2.43
 
 # Check which glibc versions have artifacts available
 AVAILABLE_GLIBC_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\

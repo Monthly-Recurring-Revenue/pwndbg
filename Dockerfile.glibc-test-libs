@@ -6,7 +6,7 @@
 #   docker push ghcr.io/pwndbg/glibc-test-libs:latest
 #
 # The final image is a minimal scratch image containing only the glibc artifacts:
-#   /glibcs/2.35/  /glibcs/2.37/  /glibcs/2.38/  ...
+#   /glibcs/2.35/  /glibcs/2.36/  /glibcs/2.37/  ...
 #
 # Each directory contains:
 #   ld-X.XX.so              (dynamic linker)
