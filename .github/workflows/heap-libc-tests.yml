@@ -121,7 +121,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
-              labels: 'ci-failure',
+              labels: 'heap-libc-test-failure',
             });
 
             const existing = issues.find(i => i.title === title);
@@ -138,6 +138,6 @@ jobs:
                 repo: context.repo.repo,
                 title: title,
                 body: body,
-                labels: ['ci-failure'],
+                labels: ['heap-libc-test-failure'],
               });
             }
