@@ -150,7 +150,8 @@ async def test_heap_bins_glibc_version(ctrl: Controller, glibc_ver: str) -> None
     await ctrl.cont()
 
     result = allocator.fastbins()
-    assert result is not None
+    if ver < (2, 43):
+        assert result is not None
 
     # Continue to unsortedbin test
     await ctrl.cont()
