@@ -115,7 +115,7 @@ jobs:
 
       - name: Inject/extract build cache
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: reproducible-containers/buildkit-cache-dance@v3.3.2
+        uses: jackmisbach/buildkit-cache-dance@758470c6ce19f1a6b2beaf3850c823e94f0d0763 # rootless test - this should fail
         with:
           cache-map: |
             {
