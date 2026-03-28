@@ -115,7 +115,7 @@ jobs:
 
       - name: Inject/extract build cache
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: jackmisbach/buildkit-cache-dance@main
+        uses: reproducible-containers/buildkit-cache-dance@v3.3.2
         with:
           cache-map: |
             {
