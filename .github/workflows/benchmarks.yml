@@ -90,6 +90,7 @@ jobs:
       - name: Save HEAD results and checkout baseline
         run: |
           cp head_results.json /tmp/head_results.json
+          cp -r profiling /tmp/profiling_scripts
           git checkout ${{ steps.baseline.outputs.sha }}
 
       - name: Run benchmarks (baseline)
@@ -98,11 +99,12 @@ jobs:
             --security-opt seccomp=unconfined \
             --cap-add SYS_PTRACE \
             -v $(pwd):/pwndbg \
+            -v /tmp/profiling_scripts:/bench_scripts:ro \
             pwndbg-bench:latest \
             bash -c '
               set -eo pipefail
               cd /pwndbg
-              bash profiling/ci_benchmark.sh /tmp/bench_out
+              bash /bench_scripts/ci_benchmark.sh /tmp/bench_out
               cp /tmp/bench_out/combined.json /pwndbg/base_results.json
             '
 
@@ -210,6 +212,7 @@ jobs:
       - name: Save HEAD results and checkout baseline
         run: |
           cp head_heap_results.json /tmp/head_heap_results.json
+          cp -r profiling /tmp/profiling_scripts
           git checkout ${{ steps.baseline.outputs.sha }}
 
       - name: Run heap benchmarks (baseline) glibc ${{ matrix.glibc }}
@@ -218,11 +221,12 @@ jobs:
             --security-opt seccomp=unconfined \
             --cap-add SYS_PTRACE \
             -v $(pwd):/pwndbg \
+            -v /tmp/profiling_scripts:/bench_scripts:ro \
             pwndbg-bench:latest \
             bash -c '
               set -eo pipefail
               cd /pwndbg
-              bash profiling/ci_benchmark.sh /tmp/bench_out \
+              bash /bench_scripts/ci_benchmark.sh /tmp/bench_out \
                 --heap-only \
                 --glibc-dir /pwndbg/glibcs/${{ matrix.glibc }}
               cp /tmp/bench_out/combined.json /pwndbg/base_heap_results.json
