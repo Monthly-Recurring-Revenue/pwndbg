@@ -24,7 +24,7 @@ import pwndbg.commands.ptmalloc2
 import pwndbg.lib.cache
 
 
-def benchmark(func, iterations=15, clear_cache=True, warmup=3):
+def benchmark(func, iterations=30, clear_cache=True, warmup=5):
     """Run func multiple times, return timing stats in seconds.
 
     Drops the top and bottom 20% of samples (trimmed mean) to reduce
@@ -86,7 +86,7 @@ def run_heap_benchmarks():
     def run_heap():
         gdb.execute("heap", to_string=True)
 
-    results["heap"] = benchmark(run_heap, iterations=10)
+    results["heap"] = benchmark(run_heap, iterations=15)
 
     # Benchmark: bins
     def run_bins():
