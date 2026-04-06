@@ -147,10 +147,12 @@ print(json.dumps({
         --batch \
         -ex 'b main' -ex 'r' \
         -ex "source $SCRIPT_DIR/ci_benchmark_gdb.py" \
-        -ex 'quit' || {
-        echo "WARNING: Benchmark script failed, creating empty results"
+        -ex 'quit' || true
+    # Only create empty fallback if the GDB script didn't write results
+    if [[ ! -s "$OUTPUT_DIR/benchmark.json" ]]; then
+        echo "WARNING: No benchmark results produced"
         echo '{}' > "$OUTPUT_DIR/benchmark.json"
-    }
+    fi
     echo ""
 else
     # Create empty placeholders for heap-only mode
@@ -166,10 +168,12 @@ $UV_RUN pwndbg "$BIN_DIR/heap_test_bin" \
     --batch \
     -ex 'b main' -ex 'r' \
     -ex "source $SCRIPT_DIR/ci_heap_benchmark_gdb.py" \
-    -ex 'quit' || {
-    echo "WARNING: Heap benchmark script failed, creating empty results"
+    -ex 'quit' || true
+# Only create empty fallback if the GDB script didn't write results
+if [[ ! -s "$OUTPUT_DIR/heap.json" ]]; then
+    echo "WARNING: No heap benchmark results produced"
     echo '{}' > "$OUTPUT_DIR/heap.json"
-}
+fi
 echo ""
 
 # ── Combine results ──────────────────────────────────────────
