@@ -91,6 +91,7 @@ jobs:
         run: |
           cp head_results.json /tmp/head_results.json
           cp -r profiling /tmp/profiling_scripts
+          cp scripts/common.sh /tmp/profiling_scripts/_common.sh
           git checkout ${{ steps.baseline.outputs.sha }}
 
       - name: Run benchmarks (baseline)
@@ -104,6 +105,7 @@ jobs:
             bash -c '
               set -eo pipefail
               cd /pwndbg
+              cp /bench_scripts/_common.sh /pwndbg/scripts/common.sh 2>/dev/null || true
               bash /bench_scripts/ci_benchmark.sh /tmp/bench_out
               cp /tmp/bench_out/combined.json /pwndbg/base_results.json
             '
@@ -226,6 +228,7 @@ jobs:
             bash -c '
               set -eo pipefail
               cd /pwndbg
+              cp /bench_scripts/_common.sh /pwndbg/scripts/common.sh 2>/dev/null || true
               bash /bench_scripts/ci_benchmark.sh /tmp/bench_out \
                 --heap-only \
                 --glibc-dir /pwndbg/glibcs/${{ matrix.glibc }}
