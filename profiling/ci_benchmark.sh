@@ -13,7 +13,7 @@
 #   <output_dir>/heap.json       - heap benchmark data (when --heap-only or --glibc-dir)
 #   <output_dir>/combined.json   - all results combined with system info
 
-set -euo pipefail
+set -eo pipefail
 
 source "$(dirname "$0")/../scripts/common.sh"
 

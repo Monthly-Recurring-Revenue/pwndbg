@@ -57,7 +57,7 @@ jobs:
             -v $(pwd):/pwndbg \
             pwndbg-bench:latest \
             bash -c '
-              set -euo pipefail
+              set -eo pipefail
               cd /pwndbg
               bash profiling/ci_benchmark.sh /tmp/bench_out
               cp /tmp/bench_out/combined.json /pwndbg/head_results.json
@@ -78,7 +78,7 @@ jobs:
             -v $(pwd):/pwndbg \
             pwndbg-bench:latest \
             bash -c '
-              set -euo pipefail
+              set -eo pipefail
               cd /pwndbg
               bash profiling/ci_benchmark.sh /tmp/bench_out
               cp /tmp/bench_out/combined.json /pwndbg/base_results.json
@@ -166,7 +166,7 @@ jobs:
               -t pwndbg-bench:latest .
           fi
 
-      - name: Run heap benchmarks (HEAD) — glibc ${{ matrix.glibc }}
+      - name: Run heap benchmarks (HEAD) glibc ${{ matrix.glibc }}
         run: |
           docker run --rm \
             --security-opt seccomp=unconfined \
@@ -174,7 +174,7 @@ jobs:
             -v $(pwd):/pwndbg \
             pwndbg-bench:latest \
             bash -c '
-              set -euo pipefail
+              set -eo pipefail
               cd /pwndbg
               bash profiling/ci_benchmark.sh /tmp/bench_out \
                 --heap-only \
@@ -188,7 +188,7 @@ jobs:
           cp head_heap_results.json /tmp/head_heap_results.json
           git checkout ${{ github.event.pull_request.base.sha }}
 
-      - name: Run heap benchmarks (BASE) — glibc ${{ matrix.glibc }}
+      - name: Run heap benchmarks (BASE) glibc ${{ matrix.glibc }}
         if: github.event_name == 'pull_request'
         run: |
           docker run --rm \
@@ -197,7 +197,7 @@ jobs:
             -v $(pwd):/pwndbg \
             pwndbg-bench:latest \
             bash -c '
-              set -euo pipefail
+              set -eo pipefail
               cd /pwndbg
               bash profiling/ci_benchmark.sh /tmp/bench_out \
                 --heap-only \
@@ -214,7 +214,7 @@ jobs:
       - name: Generate comparison report
         if: github.event_name == 'pull_request'
         run: |
-          echo "## Heap Benchmark — glibc ${{ matrix.glibc }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Heap Benchmark - glibc ${{ matrix.glibc }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           python3 profiling/compare_benchmarks.py \
             base_heap_results.json head_heap_results.json \
@@ -223,7 +223,7 @@ jobs:
       - name: Generate single report
         if: github.event_name == 'push'
         run: |
-          echo "## Heap Benchmark — glibc ${{ matrix.glibc }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Heap Benchmark - glibc ${{ matrix.glibc }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           python3 profiling/compare_benchmarks.py \
             none head_heap_results.json >> $GITHUB_STEP_SUMMARY 2>&1 || true
