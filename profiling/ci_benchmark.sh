@@ -103,28 +103,35 @@ echo ""
 
 # ── General benchmarks (skip if --heap-only) ─────────────────
 if [[ "$HEAP_ONLY" == "false" ]]; then
-    # Measure startup time
-    echo "=== Measuring startup time (5 runs) ==="
+    # Measure startup time (first 2 runs are warmup, not counted)
+    echo "=== Measuring startup time (2 warmup + 10 measured) ==="
     startup_times=()
-    for i in $(seq 1 5); do
+    for i in $(seq 1 12); do
         start_ns=$(date +%s%N)
         $UV_RUN pwndbg "$BIN_DIR/test" --batch -ex 'quit' > /dev/null 2>&1 || true
         end_ns=$(date +%s%N)
         elapsed=$(python3 -c "print(f'{($end_ns - $start_ns) / 1000000000:.6f}')")
-        startup_times+=("$elapsed")
-        echo "  Run $i: ${elapsed}s"
+        if [[ $i -le 2 ]]; then
+            echo "  Warmup $i: ${elapsed}s (discarded)"
+        else
+            startup_times+=("$elapsed")
+            echo "  Run $((i - 2)): ${elapsed}s"
+        fi
     done
 
-    # Calculate startup stats
+    # Calculate startup stats with trimmed mean
     startup_json=$(python3 -c "
 import json, sys
 times = [float(t) for t in sys.argv[1:]]
 times.sort()
+trim = max(1, len(times) // 5)
+trimmed = times[trim:-trim] if len(times) > trim * 2 else times
 print(json.dumps({
     'min': round(times[0], 6),
     'max': round(times[-1], 6),
     'avg': round(sum(times) / len(times), 6),
     'median': round(times[len(times) // 2], 6),
+    'trimmed_mean': round(sum(trimmed) / len(trimmed), 6),
     'samples': len(times),
 }))
 " "${startup_times[@]}")

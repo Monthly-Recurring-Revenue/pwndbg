@@ -141,9 +141,13 @@ def generate_report(
                  f"{head_sys.get('gdb', '?')}")
     lines.append("")
 
-    # Startup time
-    base_startup = base_data.get("startup", {}).get("avg")
-    head_startup = head_data.get("startup", {}).get("avg")
+    # Startup time - prefer trimmed_mean, fall back to median, then avg
+    def _get_startup(d: dict) -> float | None:
+        s = d.get("startup", {})
+        return s.get("trimmed_mean") or s.get("median") or s.get("avg")
+
+    base_startup = _get_startup(base_data)
+    head_startup = _get_startup(head_data)
     if base_startup and head_startup:
         lines.append("### Startup Time")
         lines.append("")
