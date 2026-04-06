@@ -35,7 +35,6 @@ env:
   DEFAULT_BASELINE: a346427bc
 
 jobs:
-  # ── General benchmarks (startup, context, etc.) ─────────────
   benchmark:
     name: benchmark (general)
     runs-on: ubuntu-latest
@@ -73,23 +72,26 @@ jobs:
               -t pwndbg-bench:latest .
           fi
 
+      - name: Prepare results directory
+        run: mkdir -p /tmp/bench_results
+
       - name: Run benchmarks (HEAD)
         run: |
           docker run --rm \
             --security-opt seccomp=unconfined \
             --cap-add SYS_PTRACE \
             -v $(pwd):/pwndbg \
+            -v /tmp/bench_results:/results \
             pwndbg-bench:latest \
             bash -c '
               set -eo pipefail
               cd /pwndbg
               bash profiling/ci_benchmark.sh /tmp/bench_out
-              cp /tmp/bench_out/combined.json /pwndbg/head_results.json
+              cp /tmp/bench_out/combined.json /results/head.json
             '
 
-      - name: Save HEAD results and checkout baseline
+      - name: Save scripts and checkout baseline
         run: |
-          cp head_results.json /tmp/head_results.json
           cp -r profiling /tmp/profiling_scripts
           cp scripts/common.sh /tmp/profiling_scripts/_common.sh
           git checkout ${{ steps.baseline.outputs.sha }}
@@ -101,19 +103,17 @@ jobs:
             --cap-add SYS_PTRACE \
             -v $(pwd):/pwndbg \
             -v /tmp/profiling_scripts:/bench_scripts:ro \
+            -v /tmp/bench_results:/results \
             pwndbg-bench:latest \
             bash -c '
               set -eo pipefail
               cd /pwndbg
-              cp /bench_scripts/_common.sh /pwndbg/scripts/common.sh 2>/dev/null || true
               bash /bench_scripts/ci_benchmark.sh /tmp/bench_out
-              cp /tmp/bench_out/combined.json /pwndbg/base_results.json
+              cp /tmp/bench_out/combined.json /results/base.json
             '
 
       - name: Restore HEAD
-        run: |
-          cp /tmp/head_results.json head_results.json
-          git checkout ${{ github.sha }}
+        run: git checkout ${{ github.sha }}
 
       - name: Generate comparison report
         run: |
@@ -121,7 +121,7 @@ jobs:
           echo "**HEAD**: \`$(git rev-parse --short HEAD)\` | **Baseline**: \`$(git rev-parse --short ${{ steps.baseline.outputs.sha }})\` (${{ steps.baseline.outputs.label }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           python3 profiling/compare_benchmarks.py \
-            base_results.json head_results.json \
+            /tmp/bench_results/base.json /tmp/bench_results/head.json \
             --threshold 15 >> $GITHUB_STEP_SUMMARY 2>&1 || true
 
       - name: Upload results
@@ -129,12 +129,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmark-general
-          path: |
-            head_results.json
-            base_results.json
+          path: /tmp/bench_results/
           retention-days: 30
 
-  # ── Heap benchmarks across glibc versions ────────────────────
   heap-benchmark:
     name: benchmark (heap-glibc-${{ matrix.glibc }})
     strategy:
@@ -195,12 +192,16 @@ jobs:
               -t pwndbg-bench:latest .
           fi
 
+      - name: Prepare results directory
+        run: mkdir -p /tmp/bench_results
+
       - name: Run heap benchmarks (HEAD) glibc ${{ matrix.glibc }}
         run: |
           docker run --rm \
             --security-opt seccomp=unconfined \
             --cap-add SYS_PTRACE \
             -v $(pwd):/pwndbg \
+            -v /tmp/bench_results:/results \
             pwndbg-bench:latest \
             bash -c '
               set -eo pipefail
@@ -208,13 +209,13 @@ jobs:
               bash profiling/ci_benchmark.sh /tmp/bench_out \
                 --heap-only \
                 --glibc-dir /pwndbg/glibcs/${{ matrix.glibc }}
-              cp /tmp/bench_out/combined.json /pwndbg/head_heap_results.json
+              cp /tmp/bench_out/combined.json /results/head.json
             '
 
-      - name: Save HEAD results and checkout baseline
+      - name: Save scripts and checkout baseline
         run: |
-          cp head_heap_results.json /tmp/head_heap_results.json
           cp -r profiling /tmp/profiling_scripts
+          cp scripts/common.sh /tmp/profiling_scripts/_common.sh
           git checkout ${{ steps.baseline.outputs.sha }}
 
       - name: Run heap benchmarks (baseline) glibc ${{ matrix.glibc }}
@@ -224,21 +225,19 @@ jobs:
             --cap-add SYS_PTRACE \
             -v $(pwd):/pwndbg \
             -v /tmp/profiling_scripts:/bench_scripts:ro \
+            -v /tmp/bench_results:/results \
             pwndbg-bench:latest \
             bash -c '
               set -eo pipefail
               cd /pwndbg
-              cp /bench_scripts/_common.sh /pwndbg/scripts/common.sh 2>/dev/null || true
               bash /bench_scripts/ci_benchmark.sh /tmp/bench_out \
                 --heap-only \
                 --glibc-dir /pwndbg/glibcs/${{ matrix.glibc }}
-              cp /tmp/bench_out/combined.json /pwndbg/base_heap_results.json
+              cp /tmp/bench_out/combined.json /results/base.json
             '
 
       - name: Restore HEAD
-        run: |
-          cp /tmp/head_heap_results.json head_heap_results.json
-          git checkout ${{ github.sha }}
+        run: git checkout ${{ github.sha }}
 
       - name: Generate comparison report
         run: |
@@ -246,7 +245,7 @@ jobs:
           echo "**HEAD**: \`$(git rev-parse --short HEAD)\` | **Baseline**: \`$(git rev-parse --short ${{ steps.baseline.outputs.sha }})\` (${{ steps.baseline.outputs.label }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           python3 profiling/compare_benchmarks.py \
-            base_heap_results.json head_heap_results.json \
+            /tmp/bench_results/base.json /tmp/bench_results/head.json \
             --threshold 15 >> $GITHUB_STEP_SUMMARY 2>&1 || true
 
       - name: Upload results
@@ -254,7 +253,5 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmark-heap-glibc-${{ matrix.glibc }}
-          path: |
-            head_heap_results.json
-            base_heap_results.json
+          path: /tmp/bench_results/
           retention-days: 30
