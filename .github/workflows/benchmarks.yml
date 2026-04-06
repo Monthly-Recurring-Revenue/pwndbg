@@ -1,0 +1,239 @@
+name: Benchmarks
+
+on:
+  push:
+    branches:
+      - benchmark
+    paths:
+      - "**"
+      - "!mkdocs.yml"
+      - "!docs/**"
+      - "!*.md"
+  pull_request:
+    paths:
+      - "**"
+      - "!mkdocs.yml"
+      - "!docs/**"
+      - "!*.md"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ── General benchmarks (startup, context, etc.) ─────────────
+  benchmark:
+    name: benchmark (general)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Pull or build pwndbg image
+        run: |
+          if docker pull ghcr.io/pwndbg/pwndbg:ubuntu24.04 2>/dev/null; then
+            docker tag ghcr.io/pwndbg/pwndbg:ubuntu24.04 pwndbg-bench:latest
+          else
+            docker buildx build --load \
+              --cache-from type=registry,ref=ghcr.io/pwndbg/cache:ubuntu24.04-amd64 \
+              -f Dockerfile --build-arg image=ubuntu:24.04 \
+              -t pwndbg-bench:latest .
+          fi
+
+      - name: Run benchmarks (HEAD)
+        run: |
+          docker run --rm \
+            --security-opt seccomp=unconfined \
+            --cap-add SYS_PTRACE \
+            -v $(pwd):/pwndbg \
+            pwndbg-bench:latest \
+            bash -c '
+              set -euo pipefail
+              cd /pwndbg
+              bash profiling/ci_benchmark.sh /tmp/bench_out
+              cp /tmp/bench_out/combined.json /pwndbg/head_results.json
+            '
+
+      - name: Checkout base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          cp head_results.json /tmp/head_results.json
+          git checkout ${{ github.event.pull_request.base.sha }}
+
+      - name: Run benchmarks (BASE)
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run --rm \
+            --security-opt seccomp=unconfined \
+            --cap-add SYS_PTRACE \
+            -v $(pwd):/pwndbg \
+            pwndbg-bench:latest \
+            bash -c '
+              set -euo pipefail
+              cd /pwndbg
+              bash profiling/ci_benchmark.sh /tmp/bench_out
+              cp /tmp/bench_out/combined.json /pwndbg/base_results.json
+            '
+
+      - name: Restore HEAD
+        if: github.event_name == 'pull_request'
+        run: |
+          cp /tmp/head_results.json head_results.json
+          git checkout ${{ github.sha }}
+
+      - name: Generate comparison report
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 profiling/compare_benchmarks.py \
+            base_results.json head_results.json \
+            --threshold 15 >> $GITHUB_STEP_SUMMARY 2>&1 || true
+
+      - name: Generate single report
+        if: github.event_name == 'push'
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 profiling/compare_benchmarks.py \
+            none head_results.json >> $GITHUB_STEP_SUMMARY 2>&1 || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmark-general
+          path: |
+            head_results.json
+            base_results.json
+          retention-days: 30
+
+  # ── Heap benchmarks across glibc versions ────────────────────
+  # Uses Dockerfile.glibc-test-libs to build/cache specific glibc
+  # versions and benchmark heap commands against each one.
+  heap-benchmark:
+    name: benchmark (heap-glibc-${{ matrix.glibc }})
+    strategy:
+      fail-fast: false
+      matrix:
+        glibc: ["2.35", "2.38", "2.41", "2.43"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Cache glibc ${{ matrix.glibc }} artifacts
+        id: cache-glibc
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        with:
+          path: glibcs/${{ matrix.glibc }}
+          key: glibc-bench-${{ matrix.glibc }}-${{ hashFiles('scripts/build-one-glibc.sh', 'Dockerfile.glibc-test-libs') }}
+
+      - name: Build glibc ${{ matrix.glibc }}
+        if: steps.cache-glibc.outputs.cache-hit != 'true'
+        run: |
+          docker build \
+            -f Dockerfile.glibc-test-libs \
+            --target build-${{ matrix.glibc }} \
+            -t glibc-builder:${{ matrix.glibc }} .
+          CID=$(docker create glibc-builder:${{ matrix.glibc }})
+          mkdir -p glibcs/${{ matrix.glibc }}
+          docker cp "${CID}:/glibcs/${{ matrix.glibc }}/." glibcs/${{ matrix.glibc }}/
+          docker rm "${CID}" > /dev/null
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Pull or build pwndbg image
+        run: |
+          if docker pull ghcr.io/pwndbg/pwndbg:ubuntu24.04 2>/dev/null; then
+            docker tag ghcr.io/pwndbg/pwndbg:ubuntu24.04 pwndbg-bench:latest
+          else
+            docker buildx build --load \
+              --cache-from type=registry,ref=ghcr.io/pwndbg/cache:ubuntu24.04-amd64 \
+              -f Dockerfile --build-arg image=ubuntu:24.04 \
+              -t pwndbg-bench:latest .
+          fi
+
+      - name: Run heap benchmarks (HEAD) — glibc ${{ matrix.glibc }}
+        run: |
+          docker run --rm \
+            --security-opt seccomp=unconfined \
+            --cap-add SYS_PTRACE \
+            -v $(pwd):/pwndbg \
+            pwndbg-bench:latest \
+            bash -c '
+              set -euo pipefail
+              cd /pwndbg
+              bash profiling/ci_benchmark.sh /tmp/bench_out \
+                --heap-only \
+                --glibc-dir /pwndbg/glibcs/${{ matrix.glibc }}
+              cp /tmp/bench_out/combined.json /pwndbg/head_heap_results.json
+            '
+
+      - name: Checkout base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          cp head_heap_results.json /tmp/head_heap_results.json
+          git checkout ${{ github.event.pull_request.base.sha }}
+
+      - name: Run heap benchmarks (BASE) — glibc ${{ matrix.glibc }}
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run --rm \
+            --security-opt seccomp=unconfined \
+            --cap-add SYS_PTRACE \
+            -v $(pwd):/pwndbg \
+            pwndbg-bench:latest \
+            bash -c '
+              set -euo pipefail
+              cd /pwndbg
+              bash profiling/ci_benchmark.sh /tmp/bench_out \
+                --heap-only \
+                --glibc-dir /pwndbg/glibcs/${{ matrix.glibc }}
+              cp /tmp/bench_out/combined.json /pwndbg/base_heap_results.json
+            '
+
+      - name: Restore HEAD
+        if: github.event_name == 'pull_request'
+        run: |
+          cp /tmp/head_heap_results.json head_heap_results.json
+          git checkout ${{ github.sha }}
+
+      - name: Generate comparison report
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "## Heap Benchmark — glibc ${{ matrix.glibc }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 profiling/compare_benchmarks.py \
+            base_heap_results.json head_heap_results.json \
+            --threshold 15 >> $GITHUB_STEP_SUMMARY 2>&1 || true
+
+      - name: Generate single report
+        if: github.event_name == 'push'
+        run: |
+          echo "## Heap Benchmark — glibc ${{ matrix.glibc }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 profiling/compare_benchmarks.py \
+            none head_heap_results.json >> $GITHUB_STEP_SUMMARY 2>&1 || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmark-heap-glibc-${{ matrix.glibc }}
+          path: |
+            head_heap_results.json
+            base_heap_results.json
+          retention-days: 30
