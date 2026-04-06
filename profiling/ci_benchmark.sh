@@ -24,6 +24,8 @@ else
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN_DIR="/tmp/bench_binaries"
+mkdir -p "$BIN_DIR"
 
 # Parse arguments
 OUTPUT_DIR="/tmp/benchmark_output"
@@ -79,22 +81,22 @@ json.dump({
 
 # ── Compile test binaries ────────────────────────────────────
 echo "=== Compiling test binaries ==="
-gcc -g -o "$SCRIPT_DIR/test" "$SCRIPT_DIR/test.c" 2>/dev/null || \
-    cc -g -o "$SCRIPT_DIR/test" "$SCRIPT_DIR/test.c"
+gcc -g -o "$BIN_DIR/test" "$SCRIPT_DIR/test.c" 2>/dev/null || \
+    cc -g -o "$BIN_DIR/test" "$SCRIPT_DIR/test.c"
 
 # Compile heap test binary
 if [[ -n "$GLIBC_DIR" ]]; then
-    gcc -g -o "$SCRIPT_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c" \
+    gcc -g -o "$BIN_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c" \
         -Wl,-rpath="$GLIBC_DIR" \
         -Wl,--dynamic-linker="$GLIBC_DIR/ld-linux-x86-64.so.2" \
         2>/dev/null || \
-    cc -g -o "$SCRIPT_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c" \
+    cc -g -o "$BIN_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c" \
         -Wl,-rpath="$GLIBC_DIR" \
         -Wl,--dynamic-linker="$GLIBC_DIR/ld-linux-x86-64.so.2"
     echo "  heap_test_bin linked against glibc in $GLIBC_DIR"
 else
-    gcc -g -o "$SCRIPT_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c" 2>/dev/null || \
-        cc -g -o "$SCRIPT_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c"
+    gcc -g -o "$BIN_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c" 2>/dev/null || \
+        cc -g -o "$BIN_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c"
 fi
 echo "  Done."
 echo ""
@@ -106,7 +108,7 @@ if [[ "$HEAP_ONLY" == "false" ]]; then
     startup_times=()
     for i in $(seq 1 5); do
         start_ns=$(date +%s%N)
-        $UV_RUN pwndbg "$SCRIPT_DIR/test" --batch -ex 'quit' > /dev/null 2>&1 || true
+        $UV_RUN pwndbg "$BIN_DIR/test" --batch -ex 'quit' > /dev/null 2>&1 || true
         end_ns=$(date +%s%N)
         elapsed=$(python3 -c "print(f'{($end_ns - $start_ns) / 1000000000:.6f}')")
         startup_times+=("$elapsed")
@@ -132,7 +134,7 @@ print(json.dumps({
 
     # Measure profiled startup (PWNDBG_PROFILE=1)
     echo "=== Measuring profiled startup ==="
-    PWNDBG_PROFILE=1 $UV_RUN pwndbg "$SCRIPT_DIR/test" --batch -ex 'quit' > /tmp/profile_output.log 2>&1 || true
+    PWNDBG_PROFILE=1 $UV_RUN pwndbg "$BIN_DIR/test" --batch -ex 'quit' > /tmp/profile_output.log 2>&1 || true
     profile_load_time=$(grep -oP 'Time Elapsed: \K[\d.]+' /tmp/profile_output.log | head -1 || echo "0")
     echo "  Profile load time: ${profile_load_time}s"
     echo "$profile_load_time" > "$OUTPUT_DIR/profile_load_time.txt"
@@ -141,7 +143,7 @@ print(json.dumps({
     # Run command benchmarks
     echo "=== Running command benchmarks ==="
     export BENCHMARK_OUTPUT="$OUTPUT_DIR/benchmark.json"
-    $UV_RUN pwndbg "$SCRIPT_DIR/test" \
+    $UV_RUN pwndbg "$BIN_DIR/test" \
         --batch \
         -ex 'b main' -ex 'r' \
         -ex "source $SCRIPT_DIR/ci_benchmark_gdb.py" \
@@ -160,7 +162,7 @@ fi
 # ── Heap benchmarks ──────────────────────────────────────────
 echo "=== Running heap benchmarks ==="
 export BENCHMARK_OUTPUT="$OUTPUT_DIR/heap.json"
-$UV_RUN pwndbg "$SCRIPT_DIR/heap_test_bin" \
+$UV_RUN pwndbg "$BIN_DIR/heap_test_bin" \
     --batch \
     -ex 'b main' -ex 'r' \
     -ex "source $SCRIPT_DIR/ci_heap_benchmark_gdb.py" \
