@@ -116,7 +116,11 @@ def generate_report(
 
     # System info
     head_sys = head_data.get("system", {})
-    glibc_label = head_sys.get("glibc_custom") or head_sys.get("glibc", "?")
+    glibc_custom = head_sys.get("glibc_custom") or ""
+    # Extract version from path like /pwndbg/glibcs/2.35 -> 2.35
+    if "/" in glibc_custom:
+        glibc_custom = glibc_custom.rstrip("/").rsplit("/", 1)[-1]
+    glibc_label = glibc_custom or head_sys.get("glibc", "?")
     lines.append(f"**System**: glibc {glibc_label}, "
                  f"Python {head_sys.get('python', '?')}, "
                  f"{head_sys.get('gdb', '?')}")
@@ -153,7 +157,7 @@ def generate_report(
     # Command benchmarks
     base_bench = base_data.get("benchmarks", {})
     head_bench = head_data.get("benchmarks", {})
-    if base_bench and head_bench:
+    if base_bench or head_bench:
         lines.append("### Command Benchmarks")
         lines.append("")
         table_lines, reg = _render_comparison_table(base_bench, head_bench, COMMAND_METRICS, threshold)
@@ -164,8 +168,8 @@ def generate_report(
     # Heap benchmarks
     base_heap = base_data.get("heap_benchmarks", {})
     head_heap = head_data.get("heap_benchmarks", {})
-    if base_heap and head_heap:
-        glibc_ver = head_heap.get("glibc_version", "")
+    if base_heap or head_heap:
+        glibc_ver = (head_heap or base_heap).get("glibc_version", "")
         lines.append(f"### Heap Benchmarks (glibc {glibc_ver})")
         lines.append("")
         table_lines, reg = _render_comparison_table(base_heap, head_heap, HEAP_METRICS, threshold)
@@ -183,7 +187,10 @@ def generate_single_report(data: dict) -> str:
     lines = []
 
     sys_info = data.get("system", {})
-    glibc_label = sys_info.get("glibc_custom") or sys_info.get("glibc", "?")
+    glibc_custom = sys_info.get("glibc_custom") or ""
+    if "/" in glibc_custom:
+        glibc_custom = glibc_custom.rstrip("/").rsplit("/", 1)[-1]
+    glibc_label = glibc_custom or sys_info.get("glibc", "?")
     lines.append(f"**System**: glibc {glibc_label}, "
                  f"Python {sys_info.get('python', '?')}, "
                  f"{sys_info.get('gdb', '?')}")
