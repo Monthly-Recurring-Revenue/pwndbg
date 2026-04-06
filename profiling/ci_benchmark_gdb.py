@@ -20,8 +20,17 @@ import pwndbg.commands.context
 import pwndbg.lib.cache
 
 
-def benchmark(func, iterations=5, clear_cache=True, step=False):
+def benchmark(func, iterations=5, clear_cache=True, step=False, warmup=1):
     """Run func multiple times, return timing stats in seconds."""
+    # Warmup runs (not timed) to stabilize GDB state
+    for _ in range(warmup):
+        if clear_cache:
+            pwndbg.lib.cache.clear_caches()
+        if step:
+            gdb.execute("stepi", to_string=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            func()
+
     times = []
     for _ in range(iterations):
         if clear_cache:

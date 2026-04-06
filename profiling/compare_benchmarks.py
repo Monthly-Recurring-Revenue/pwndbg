@@ -27,8 +27,8 @@ def compare_metric(
     base: dict, head: dict, key: str, label: str
 ) -> tuple[str, float | None]:
     """Compare a single metric between base and head. Returns (markdown_row, pct_change)."""
-    base_val = base.get(key, {}).get("avg") if isinstance(base.get(key), dict) else None
-    head_val = head.get(key, {}).get("avg") if isinstance(head.get(key), dict) else None
+    base_val = base.get(key, {}).get("median") if isinstance(base.get(key), dict) else None
+    head_val = head.get(key, {}).get("median") if isinstance(head.get(key), dict) else None
 
     base_str = format_time(base_val) if base_val is not None else "N/A"
     head_str = format_time(head_val) if head_val is not None else "N/A"
@@ -58,8 +58,8 @@ def _render_comparison_table(
     """Render a comparison table for a set of metrics. Returns (lines, has_regression)."""
     lines = []
     has_regression = False
-    lines.append("| Metric | Base (avg) | Head (avg) | Change | Status |")
-    lines.append("|--------|-----------|-----------|--------|--------|")
+    lines.append("| Metric | Base (median) | Head (median) | Change | Status |")
+    lines.append("|--------|--------------|--------------|--------|--------|")
     for key, label in metrics:
         row, pct = compare_metric(base, head, key, label)
         if pct is not None and pct > threshold:
