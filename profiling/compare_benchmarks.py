@@ -27,8 +27,15 @@ def compare_metric(
     base: dict, head: dict, key: str, label: str
 ) -> tuple[str, float | None]:
     """Compare a single metric between base and head. Returns (markdown_row, pct_change)."""
-    base_val = base.get(key, {}).get("median") if isinstance(base.get(key), dict) else None
-    head_val = head.get(key, {}).get("median") if isinstance(head.get(key), dict) else None
+    # Prefer trimmed_mean (drops outliers), fall back to median
+    def _get_val(d: dict, k: str) -> float | None:
+        entry = d.get(k)
+        if not isinstance(entry, dict):
+            return None
+        return entry.get("trimmed_mean") or entry.get("median")
+
+    base_val = _get_val(base, key)
+    head_val = _get_val(head, key)
 
     base_str = format_time(base_val) if base_val is not None else "N/A"
     head_str = format_time(head_val) if head_val is not None else "N/A"

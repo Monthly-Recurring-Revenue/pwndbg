@@ -24,8 +24,22 @@ import pwndbg.commands.ptmalloc2
 import pwndbg.lib.cache
 
 
-def benchmark(func, iterations=5, clear_cache=True):
-    """Run func multiple times, return timing stats in seconds."""
+def benchmark(func, iterations=15, clear_cache=True, warmup=3):
+    """Run func multiple times, return timing stats in seconds.
+
+    Drops the top and bottom 20% of samples (trimmed mean) to reduce
+    the impact of CI noise and outliers.
+    """
+    # Warmup runs
+    for _ in range(warmup):
+        if clear_cache:
+            pwndbg.lib.cache.clear_caches()
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                func()
+            except Exception:
+                pass
+
     times = []
     for _ in range(iterations):
         if clear_cache:
@@ -40,11 +54,16 @@ def benchmark(func, iterations=5, clear_cache=True):
         times.append(elapsed)
 
     times.sort()
+
+    trim = max(1, len(times) // 5)
+    trimmed = times[trim:-trim] if len(times) > trim * 2 else times
+
     return {
         "min": round(times[0], 6),
         "max": round(times[-1], 6),
         "avg": round(sum(times) / len(times), 6),
         "median": round(times[len(times) // 2], 6),
+        "trimmed_mean": round(sum(trimmed) / len(trimmed), 6),
         "samples": len(times),
     }
 
@@ -67,32 +86,32 @@ def run_heap_benchmarks():
     def run_heap():
         gdb.execute("heap", to_string=True)
 
-    results["heap"] = benchmark(run_heap, iterations=5)
+    results["heap"] = benchmark(run_heap, iterations=10)
 
     # Benchmark: bins
     def run_bins():
         gdb.execute("bins", to_string=True)
 
-    results["bins"] = benchmark(run_bins, iterations=5)
+    results["bins"] = benchmark(run_bins, iterations=15)
 
     # Benchmark: vis_heap_chunks
     def run_vis():
         gdb.execute("vis_heap_chunks", to_string=True)
 
-    results["vis_heap_chunks"] = benchmark(run_vis, iterations=3)
+    results["vis_heap_chunks"] = benchmark(run_vis, iterations=15)
 
     # Benchmark: heap_config (lightweight)
     def run_heap_config():
         gdb.execute("heap_config", to_string=True)
 
-    results["heap_config"] = benchmark(run_heap_config, iterations=5)
+    results["heap_config"] = benchmark(run_heap_config, iterations=15)
 
     # Benchmark: arena (if available)
     def run_arena():
         gdb.execute("arena", to_string=True)
 
     try:
-        results["arena"] = benchmark(run_arena, iterations=5)
+        results["arena"] = benchmark(run_arena, iterations=15)
     except Exception as e:
         results["arena"] = {"error": str(e)}
 
@@ -101,7 +120,7 @@ def run_heap_benchmarks():
         gdb.execute("mp", to_string=True)
 
     try:
-        results["mp"] = benchmark(run_mp, iterations=5)
+        results["mp"] = benchmark(run_mp, iterations=15)
     except Exception as e:
         results["mp"] = {"error": str(e)}
 
@@ -110,7 +129,7 @@ def run_heap_benchmarks():
         gdb.execute("top_chunk", to_string=True)
 
     try:
-        results["top_chunk"] = benchmark(run_top_chunk, iterations=5)
+        results["top_chunk"] = benchmark(run_top_chunk, iterations=15)
     except Exception as e:
         results["top_chunk"] = {"error": str(e)}
 

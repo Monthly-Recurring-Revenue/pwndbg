@@ -20,8 +20,12 @@ import pwndbg.commands.context
 import pwndbg.lib.cache
 
 
-def benchmark(func, iterations=5, clear_cache=True, step=False, warmup=1):
-    """Run func multiple times, return timing stats in seconds."""
+def benchmark(func, iterations=15, clear_cache=True, step=False, warmup=3):
+    """Run func multiple times, return timing stats in seconds.
+
+    Drops the top and bottom 20% of samples (trimmed mean) to reduce
+    the impact of CI noise and outliers.
+    """
     # Warmup runs (not timed) to stabilize GDB state
     for _ in range(warmup):
         if clear_cache:
@@ -45,11 +49,17 @@ def benchmark(func, iterations=5, clear_cache=True, step=False, warmup=1):
         times.append(elapsed)
 
     times.sort()
+
+    # Trimmed stats: drop top/bottom 20% for more stable comparison
+    trim = max(1, len(times) // 5)
+    trimmed = times[trim:-trim] if len(times) > trim * 2 else times
+
     return {
         "min": round(times[0], 6),
         "max": round(times[-1], 6),
         "avg": round(sum(times) / len(times), 6),
         "median": round(times[len(times) // 2], 6),
+        "trimmed_mean": round(sum(trimmed) / len(trimmed), 6),
         "samples": len(times),
     }
 
@@ -60,13 +70,13 @@ def run_benchmarks():
     context_func = pwndbg.commands.context.context.function
 
     # Context command - cold cache (cache cleared each iteration)
-    results["context_cold"] = benchmark(context_func, iterations=5, clear_cache=True)
+    results["context_cold"] = benchmark(context_func, iterations=15, clear_cache=True)
 
     # Context command - warm cache (cache reused across iterations)
-    results["context_warm"] = benchmark(context_func, iterations=10, clear_cache=False)
+    results["context_warm"] = benchmark(context_func, iterations=20, clear_cache=False)
 
     # Context command - with stepping (simulates real debugging)
-    results["context_step"] = benchmark(context_func, iterations=5, clear_cache=False, step=True)
+    results["context_step"] = benchmark(context_func, iterations=15, clear_cache=False, step=True)
 
     # Individual context components - cold cache
     components = {
