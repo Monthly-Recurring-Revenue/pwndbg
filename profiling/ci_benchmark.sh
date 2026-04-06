@@ -91,7 +91,7 @@ if [[ "$HEAP_ONLY" == "false" ]]; then
         start_ns=$(date +%s%N)
         $UV_RUN pwndbg "$SCRIPT_DIR/test" --batch -ex 'quit' > /dev/null 2>&1 || true
         end_ns=$(date +%s%N)
-        elapsed=$(echo "scale=6; ($end_ns - $start_ns) / 1000000000" | bc)
+        elapsed=$($UV_RUN python3 -c "print(f'{($end_ns - $start_ns) / 1000000000:.6f}')")
         startup_times+=("$elapsed")
         echo "  Run $i: ${elapsed}s"
     done
