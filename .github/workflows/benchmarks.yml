@@ -32,7 +32,7 @@ permissions:
 # Default baseline: upstream dev ~3 months ago (Jan 2026).
 # Override via workflow_dispatch input or change this value.
 env:
-  DEFAULT_BASELINE: a346427bc
+  DEFAULT_BASELINE: bbd5cf400c
 
 jobs:
   benchmark:
