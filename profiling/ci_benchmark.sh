@@ -44,9 +44,9 @@ done
 mkdir -p "$OUTPUT_DIR"
 
 # ── System info ──────────────────────────────────────────────
-glibc_version=$(ldd --version 2>&1 | sed -n '1s/([^)]*)//g; s/.* \([0-9]\+\.[0-9]\+\)$/\1/p' || echo "unknown")
-python_version=$($UV_RUN python3 --version 2>&1 | awk '{print $2}')
-gdb_version=$($UV_RUN gdb --version 2>&1 | head -1 || echo "unknown")
+glibc_version=$(ldd --version 2>&1 | head -1 | grep -oP '[0-9]+\.[0-9]+$' || echo "unknown")
+python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+gdb_version=$(gdb --version 2>&1 | head -1 || echo "unknown")
 kernel_version=$(uname -r)
 
 echo "=== System Info ==="
@@ -59,6 +59,18 @@ if [[ -n "$GLIBC_DIR" ]]; then
 fi
 echo ""
 
+# Write system info as JSON right away
+python3 -c "
+import json, sys
+json.dump({
+    'glibc': sys.argv[1],
+    'glibc_custom': sys.argv[2] or None,
+    'python': sys.argv[3],
+    'gdb': sys.argv[4],
+    'kernel': sys.argv[5],
+}, open(sys.argv[6], 'w'), indent=2)
+" "$glibc_version" "$GLIBC_DIR" "$python_version" "$gdb_version" "$kernel_version" "$OUTPUT_DIR/system.json"
+
 # ── Compile test binaries ────────────────────────────────────
 echo "=== Compiling test binaries ==="
 gcc -g -o "$SCRIPT_DIR/test" "$SCRIPT_DIR/test.c" 2>/dev/null || \
@@ -66,7 +78,6 @@ gcc -g -o "$SCRIPT_DIR/test" "$SCRIPT_DIR/test.c" 2>/dev/null || \
 
 # Compile heap test binary
 if [[ -n "$GLIBC_DIR" ]]; then
-    # Link against custom glibc
     gcc -g -o "$SCRIPT_DIR/heap_test_bin" "$SCRIPT_DIR/heap_test.c" \
         -Wl,-rpath="$GLIBC_DIR" \
         -Wl,--dynamic-linker="$GLIBC_DIR/ld-linux-x86-64.so.2" \
@@ -91,13 +102,13 @@ if [[ "$HEAP_ONLY" == "false" ]]; then
         start_ns=$(date +%s%N)
         $UV_RUN pwndbg "$SCRIPT_DIR/test" --batch -ex 'quit' > /dev/null 2>&1 || true
         end_ns=$(date +%s%N)
-        elapsed=$($UV_RUN python3 -c "print(f'{($end_ns - $start_ns) / 1000000000:.6f}')")
+        elapsed=$(python3 -c "print(f'{($end_ns - $start_ns) / 1000000000:.6f}')")
         startup_times+=("$elapsed")
         echo "  Run $i: ${elapsed}s"
     done
 
     # Calculate startup stats
-    startup_json=$($UV_RUN python3 -c "
+    startup_json=$(python3 -c "
 import json, sys
 times = [float(t) for t in sys.argv[1:]]
 times.sort()
@@ -118,6 +129,7 @@ print(json.dumps({
     PWNDBG_PROFILE=1 $UV_RUN pwndbg "$SCRIPT_DIR/test" --batch -ex 'quit' > /tmp/profile_output.log 2>&1 || true
     profile_load_time=$(grep -oP 'Time Elapsed: \K[\d.]+' /tmp/profile_output.log | head -1 || echo "0")
     echo "  Profile load time: ${profile_load_time}s"
+    echo "$profile_load_time" > "$OUTPUT_DIR/profile_load_time.txt"
     echo ""
 
     # Run command benchmarks
@@ -136,7 +148,7 @@ else
     # Create empty placeholders for heap-only mode
     echo '{}' > "$OUTPUT_DIR/startup.json"
     echo '{}' > "$OUTPUT_DIR/benchmark.json"
-    profile_load_time="0"
+    echo "0" > "$OUTPUT_DIR/profile_load_time.txt"
 fi
 
 # ── Heap benchmarks ──────────────────────────────────────────
@@ -154,23 +166,21 @@ echo ""
 
 # ── Combine results ──────────────────────────────────────────
 echo "=== Combining results ==="
-$UV_RUN python3 -c "
+python3 -c "
 import json
 
+system = json.load(open('$OUTPUT_DIR/system.json'))
 startup = json.load(open('$OUTPUT_DIR/startup.json'))
 benchmark = json.load(open('$OUTPUT_DIR/benchmark.json'))
 heap = json.load(open('$OUTPUT_DIR/heap.json'))
 
+plt = open('$OUTPUT_DIR/profile_load_time.txt').read().strip()
+profile_load_time = float(plt) if plt and plt != '0' else None
+
 combined = {
-    'system': {
-        'glibc': '$glibc_version',
-        'glibc_custom': '$GLIBC_DIR' or None,
-        'python': '$python_version',
-        'gdb': '''$gdb_version''',
-        'kernel': '$kernel_version',
-    },
+    'system': system,
     'startup': startup,
-    'profile_load_time': float('$profile_load_time') if '$profile_load_time' not in ('', '0') else None,
+    'profile_load_time': profile_load_time,
     'benchmarks': benchmark,
     'heap_benchmarks': heap,
 }
