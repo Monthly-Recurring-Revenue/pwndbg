@@ -48,7 +48,11 @@ def compare_metric(
     else:
         pct = ((head_val - base_val) / base_val) * 100
 
-    if pct > 5:
+    # Don't flag sub-millisecond metrics - microsecond jitter is meaningless noise
+    sub_ms = max(base_val, head_val) < 0.001
+    if sub_ms:
+        indicator = ""
+    elif pct > 5:
         indicator = "regression"
     elif pct < -5:
         indicator = "improvement"
@@ -56,7 +60,8 @@ def compare_metric(
         indicator = ""
 
     row = f"| {label} | {base_str} | {head_str} | {pct:+.1f}% | {indicator} |"
-    return row, pct
+    # Don't count sub-ms metrics toward regression detection
+    return row, None if sub_ms else pct
 
 
 def _render_comparison_table(

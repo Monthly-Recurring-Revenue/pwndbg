@@ -86,32 +86,32 @@ def run_heap_benchmarks():
     def run_heap():
         gdb.execute("heap", to_string=True)
 
-    results["heap"] = benchmark(run_heap, iterations=15)
+    results["heap"] = benchmark(run_heap, iterations=20)
 
     # Benchmark: bins
     def run_bins():
         gdb.execute("bins", to_string=True)
 
-    results["bins"] = benchmark(run_bins, iterations=15)
+    results["bins"] = benchmark(run_bins, iterations=50)
 
     # Benchmark: vis_heap_chunks
     def run_vis():
         gdb.execute("vis_heap_chunks", to_string=True)
 
-    results["vis_heap_chunks"] = benchmark(run_vis, iterations=15)
+    results["vis_heap_chunks"] = benchmark(run_vis, iterations=50)
 
     # Benchmark: heap_config (lightweight)
     def run_heap_config():
         gdb.execute("heap_config", to_string=True)
 
-    results["heap_config"] = benchmark(run_heap_config, iterations=15)
+    results["heap_config"] = benchmark(run_heap_config, iterations=50)
 
     # Benchmark: arena (if available)
     def run_arena():
         gdb.execute("arena", to_string=True)
 
     try:
-        results["arena"] = benchmark(run_arena, iterations=15)
+        results["arena"] = benchmark(run_arena, iterations=50)
     except Exception as e:
         results["arena"] = {"error": str(e)}
 
@@ -120,7 +120,7 @@ def run_heap_benchmarks():
         gdb.execute("mp", to_string=True)
 
     try:
-        results["mp"] = benchmark(run_mp, iterations=15)
+        results["mp"] = benchmark(run_mp, iterations=50)
     except Exception as e:
         results["mp"] = {"error": str(e)}
 
@@ -129,7 +129,7 @@ def run_heap_benchmarks():
         gdb.execute("top_chunk", to_string=True)
 
     try:
-        results["top_chunk"] = benchmark(run_top_chunk, iterations=15)
+        results["top_chunk"] = benchmark(run_top_chunk, iterations=50)
     except Exception as e:
         results["top_chunk"] = {"error": str(e)}
 

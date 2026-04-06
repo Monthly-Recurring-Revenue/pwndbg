@@ -20,7 +20,7 @@ import pwndbg.commands.context
 import pwndbg.lib.cache
 
 
-def benchmark(func, iterations=30, clear_cache=True, step=False, warmup=5):
+def benchmark(func, iterations=50, clear_cache=True, step=False, warmup=5):
     """Run func multiple times, return timing stats in seconds.
 
     Drops the top and bottom 20% of samples (trimmed mean) to reduce
@@ -70,13 +70,13 @@ def run_benchmarks():
     context_func = pwndbg.commands.context.context.function
 
     # Context command - cold cache (cache cleared each iteration)
-    results["context_cold"] = benchmark(context_func, iterations=30, clear_cache=True)
+    results["context_cold"] = benchmark(context_func, iterations=50, clear_cache=True)
 
     # Context command - warm cache (cache reused across iterations)
-    results["context_warm"] = benchmark(context_func, iterations=50, clear_cache=False)
+    results["context_warm"] = benchmark(context_func, iterations=100, clear_cache=False)
 
     # Context command - with stepping (simulates real debugging)
-    results["context_step"] = benchmark(context_func, iterations=30, clear_cache=False, step=True)
+    results["context_step"] = benchmark(context_func, iterations=50, clear_cache=False, step=True)
 
     # Individual context components - cold cache
     components = {
@@ -87,7 +87,7 @@ def run_benchmarks():
     }
     for name, func in components.items():
         try:
-            results[name] = benchmark(func, iterations=5, clear_cache=True)
+            results[name] = benchmark(func, iterations=50, clear_cache=True)
         except Exception as e:
             results[name] = {"error": str(e)}
 
