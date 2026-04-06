@@ -15,7 +15,13 @@
 
 set -eo pipefail
 
-source "$(dirname "$0")/../scripts/common.sh"
+# Source common.sh - try pwndbg root first (for baseline runs from /bench_scripts),
+# then fall back to relative path (for normal runs from profiling/)
+if [[ -f /pwndbg/scripts/common.sh ]]; then
+    source /pwndbg/scripts/common.sh
+else
+    source "$(dirname "$0")/../scripts/common.sh"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
