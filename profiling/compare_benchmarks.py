@@ -30,8 +30,11 @@ def compare_metric(
     base_val = base.get(key, {}).get("avg") if isinstance(base.get(key), dict) else None
     head_val = head.get(key, {}).get("avg") if isinstance(head.get(key), dict) else None
 
+    base_str = format_time(base_val) if base_val is not None else "N/A"
+    head_str = format_time(head_val) if head_val is not None else "N/A"
+
     if base_val is None or head_val is None:
-        return f"| {label} | N/A | N/A | N/A | N/A |", None
+        return f"| {label} | {base_str} | {head_str} | - | |", None
 
     if base_val == 0:
         pct = 0.0
@@ -45,7 +48,7 @@ def compare_metric(
     else:
         indicator = ""
 
-    row = f"| {label} | {format_time(base_val)} | {format_time(head_val)} | {pct:+.1f}% | {indicator} |"
+    row = f"| {label} | {base_str} | {head_str} | {pct:+.1f}% | {indicator} |"
     return row, pct
 
 
