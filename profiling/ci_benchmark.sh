@@ -147,7 +147,7 @@ print(json.dumps({
         --batch \
         -ex 'b main' -ex 'r' \
         -ex "source $SCRIPT_DIR/ci_benchmark_gdb.py" \
-        -ex 'quit' 2>/dev/null || {
+        -ex 'quit' || {
         echo "WARNING: Benchmark script failed, creating empty results"
         echo '{}' > "$OUTPUT_DIR/benchmark.json"
     }
@@ -166,7 +166,7 @@ $UV_RUN pwndbg "$BIN_DIR/heap_test_bin" \
     --batch \
     -ex 'b main' -ex 'r' \
     -ex "source $SCRIPT_DIR/ci_heap_benchmark_gdb.py" \
-    -ex 'quit' 2>/dev/null || {
+    -ex 'quit' || {
     echo "WARNING: Heap benchmark script failed, creating empty results"
     echo '{}' > "$OUTPUT_DIR/heap.json"
 }
