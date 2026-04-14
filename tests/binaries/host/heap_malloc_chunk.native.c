@@ -62,10 +62,9 @@ void configure_heap_layout(void)
     free(large);
     malloc(0x428);
 
-    // Populate the unsortedbin.
-    free(unsorted);
-
     // Populate 0x20 tcachebin (if present) & fastbin.
+    // On pre-2.43: 7 fill tcache, 8th overflows to fastbin.
+    // On glibc 2.43+: all 8 fit in tcache (TCACHE_FILL_COUNT=16), no fastbins.
     for (int i=0; i<6; i++)
     {
         free(chunks[i]);
@@ -73,6 +72,10 @@ void configure_heap_layout(void)
 
     free(tcache_);
     free(fast);
+
+    // Populate the unsortedbin LAST.
+    // Must be the final free so nothing can sort, consume, or consolidate it.
+    free(unsorted);
 
     allocated_chunk = mem2chunk(remainder_me);
     tcache_chunk = mem2chunk(tcache_);

@@ -655,14 +655,14 @@ async def test_global_max_fast_heuristic(ctrl: Controller) -> None:
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
-    if pwndbg.libc.version() >= (2, 43):
-        pytest.skip("global_max_fast does not exist in glibc 2.43+ (fastbins removed)")
-
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
 
     await ctrl.execute("set resolve-heap-via-heuristic force")
     break_at_sym("break_here")
     await ctrl.cont()
+
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip("global_max_fast does not exist in glibc 2.43+ (fastbins removed)")
 
     # Use the debug symbol to find the address of `global_max_fast`
     global_max_fast_addr_via_debug_symbol = pwndbg.aglib.symbol.lookup_symbol_addr(
