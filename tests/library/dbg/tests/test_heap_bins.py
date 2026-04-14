@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from ....host import Controller
 from . import get_binary
 from . import launch_to
@@ -18,6 +20,7 @@ async def test_heap_bins(ctrl: Controller) -> None:
     import pwndbg.aglib.memory
     import pwndbg.aglib.symbol
     import pwndbg.aglib.vmmap
+    import pwndbg.libc
     from pwndbg.aglib.heap.ptmalloc import BinType
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
@@ -27,6 +30,13 @@ async def test_heap_bins(ctrl: Controller) -> None:
     await ctrl.cont()
 
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
+
+    # glibc 2.43 removed fastbins entirely and changed TCACHE_FILL_COUNT from 7 to 16.
+    # The test binary was designed for tcache_fill_count=7 and fastbins existing, so the
+    # entire bin population flow changes on 2.43+. Skip until the test binary is adapted.
+    no_fastbins = pwndbg.libc.version() >= (2, 43)
+    if no_fastbins:
+        pytest.skip("TODO: adapt test_heap_bins for glibc 2.43+ (no fastbins, tcache_fill_count=16)")
 
     # check if all bins are empty at first
     allocator = pwndbg.aglib.heap.current

@@ -79,8 +79,13 @@ def generate_expected_malloc_chunk_output(chunks: dict[str, Any]) -> dict[str, A
         ]
     )
     real_size = size & (0xFFFFFFFFFFFFFFF - 0b111)
+    # On glibc 2.43+, fastbins are removed and TCACHE_FILL_COUNT increased to 16,
+    # so chunks that would have gone to fastbins now go to tcachebins.
+    import pwndbg.libc
+
+    fast_bin_label = "tcachebins" if pwndbg.libc.version() >= (2, 43) else "fastbins"
     expected["fast"] = [
-        "Free chunk (fastbins) | PREV_INUSE",
+        f"Free chunk ({fast_bin_label}) | PREV_INUSE",
         f"Addr: {int(chunks['fast'].address):#x}",
         f"Size: 0x{real_size:02x} (with flag bits: 0x{size:02x})",
         f"fd: 0x{int(chunks['fast']['fd']):02x}",
@@ -642,12 +647,16 @@ async def test_global_max_fast_heuristic(ctrl: Controller) -> None:
     import pwndbg.aglib.heap
     import pwndbg.aglib.memory
     import pwndbg.aglib.symbol
+    import pwndbg.libc
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
     # TODO: Support other architectures or different libc versions
     await ctrl.launch(HEAP_MALLOC_CHUNK)
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
+
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip("global_max_fast does not exist in glibc 2.43+ (fastbins removed)")
 
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
 

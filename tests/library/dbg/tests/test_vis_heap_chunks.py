@@ -71,9 +71,10 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
     first_hexdump = await hexdump_16B(hex(heap_page.start))
 
     # Since glibc 2.42 we don't store the amount of chunks in the tcache bin, but rather
-    # the amount of chunks still needed to fill the bin.
+    # the amount of chunks still needed to fill the bin. The value is TCACHE_FILL_COUNT
+    # (7 on glibc 2.42, 16 on glibc 2.43+).
     num_slots_check = pwndbg.aglib.memory.u8(heap_page.start + pwndbg.aglib.arch.ptrsize * 2)
-    using_num_slots = num_slots_check == 7
+    using_num_slots = num_slots_check != 0
 
     expected = [
         f"{heap_iter(0):#x}\t0x0000000000000000\t{first_chunk_size | 1:#018x}\t{first_hexdump}",
@@ -82,17 +83,21 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
     if using_num_slots:
         # The tcache struct is made up of 2-byte num_slots values and 8-byte pointers to the starts
         # of the bins.
+        # Build the expected qword from the actual num_slots fill value (7 or 16).
+        slots_qword = int.from_bytes(num_slots_check.to_bytes(2, "little") * 4, "little")
+        slots_qword_str = f"0x{slots_qword:016x}"
+
         ntcachebins: int = first_chunk_size // (2 + 8)
         nslotslines: float = ntcachebins * 2 / 0x10
         nptrlines: int = first_chunk_size // 0x10 - int(nslotslines)
 
         for _ in range(int(nslotslines)):
             expected.append(
-                f"{heap_iter():#x}\t0x0007000700070007\t0x0007000700070007\t................"
+                f"{heap_iter():#x}\t{slots_qword_str}\t{slots_qword_str}\t................"
             )
         if nslotslines - int(nslotslines) == 0.5:
             expected.append(
-                f"{heap_iter():#x}\t0x0007000700070007\t0x0000000000000000\t................"
+                f"{heap_iter():#x}\t{slots_qword_str}\t0x0000000000000000\t................"
             )
             nptrlines -= 1
         for _ in range(nptrlines - 1):

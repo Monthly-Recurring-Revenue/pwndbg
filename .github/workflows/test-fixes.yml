@@ -1,0 +1,182 @@
+name: Verify Test Fixes
+
+on:
+  push:
+    branches:
+      - fix-tests
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  archlinux_x86-64:
+    name: archlinux x86-64 (run ${{ matrix.run }})
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Buildx archlinux (cache from upstream)
+        run: |
+          docker buildx build \
+            --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:archlinux-amd64 \
+            -f Dockerfile.arch \
+            --build-arg image=archlinux:latest \
+            -t ghcr.io/pwndbg/pwndbg:archlinux \
+            .
+
+      - name: Run Tests on archlinux (run ${{ matrix.run }})
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg archlinux bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+            gdb --batch
+
+            set +e
+            ./tests.sh -d gdb -g gdb > /tmp/gdb.log 2>&1 & gdb_pid=$!
+            ./tests.sh -d gdb -g dbg > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
+            ./tests.sh -d lldb -g dbg > /tmp/dbg-lldb.log 2>&1 & dbg_lldb_pid=$!
+            wait $gdb_pid; gdb_exit=$?
+            wait $dbg_gdb_pid; dbg_gdb_exit=$?
+            wait $dbg_lldb_pid; dbg_lldb_exit=$?
+            set -e
+
+            echo ""
+            echo "========================================"
+            echo "       COMBINED TEST SUMMARY (run ${{ matrix.run }})"
+            echo "========================================"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/gdb.log | sed "s/^/[GDB] /"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-gdb.log | sed "s/^/[DBG-GDB] /"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-lldb.log | sed "s/^/[DBG-LLDB] /"
+
+            exit $((gdb_exit | dbg_gdb_exit | dbg_lldb_exit))
+          '
+
+  fedora_x86-64:
+    name: fedora x86-64 ${{ matrix.image }} (run ${{ matrix.run }})
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [fedora41, fedora42, fedora43]
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        include:
+          - { image: fedora41, base: "fedora:41" }
+          - { image: fedora42, base: "fedora:42" }
+          - { image: fedora43, base: "fedora:43" }
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Buildx ${{ matrix.image }} (cache from upstream)
+        run: |
+          docker buildx build \
+            --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-amd64 \
+            -f Dockerfile.dnf \
+            --build-arg image=${{ matrix.base }} \
+            -t ghcr.io/pwndbg/pwndbg:${{ matrix.image }} \
+            .
+
+      - name: Run Tests on ${{ matrix.image }} (run ${{ matrix.run }})
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg ${{ matrix.image }} bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+            gdb --batch
+
+            set +e
+            ./tests.sh -d gdb -g gdb > /tmp/gdb.log 2>&1 & gdb_pid=$!
+            ./tests.sh -d gdb -g dbg > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
+            ./tests.sh -d lldb -g dbg > /tmp/dbg-lldb.log 2>&1 & dbg_lldb_pid=$!
+            wait $gdb_pid; gdb_exit=$?
+            wait $dbg_gdb_pid; dbg_gdb_exit=$?
+            wait $dbg_lldb_pid; dbg_lldb_exit=$?
+            set -e
+
+            echo ""
+            echo "========================================"
+            echo "       COMBINED TEST SUMMARY (${{ matrix.image }} run ${{ matrix.run }})"
+            echo "========================================"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/gdb.log | sed "s/^/[GDB] /"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-gdb.log | sed "s/^/[DBG-GDB] /"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-lldb.log | sed "s/^/[DBG-LLDB] /"
+
+            exit $((gdb_exit | dbg_gdb_exit | dbg_lldb_exit))
+          '
+
+  fedora_aarch64:
+    name: fedora aarch64 ${{ matrix.image }} (run ${{ matrix.run }})
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [fedora41, fedora42, fedora43]
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        include:
+          - { image: fedora41, base: "fedora:41" }
+          - { image: fedora42, base: "fedora:42" }
+          - { image: fedora43, base: "fedora:43" }
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Buildx ${{ matrix.image }} (cache from upstream)
+        run: |
+          docker buildx build \
+            --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-arm64 \
+            -f Dockerfile.dnf \
+            --build-arg image=${{ matrix.base }} \
+            -t ghcr.io/pwndbg/pwndbg:${{ matrix.image }} \
+            .
+
+      - name: Run Tests on ${{ matrix.image }} (run ${{ matrix.run }})
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg ${{ matrix.image }} bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+
+            set +e
+            ./tests.sh -d gdb -g cross-arch-user > /tmp/cross.log 2>&1 & cross_pid=$!
+            ./tests.sh -d gdb -g dbg > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
+            ./tests.sh -d lldb -g dbg > /tmp/dbg-lldb.log 2>&1 & dbg_lldb_pid=$!
+            wait $cross_pid; cross_exit=$?
+            wait $dbg_gdb_pid; dbg_gdb_exit=$?
+            wait $dbg_lldb_pid; dbg_lldb_exit=$?
+            set -e
+
+            echo ""
+            echo "========================================"
+            echo "       COMBINED TEST SUMMARY (${{ matrix.image }} aarch64 run ${{ matrix.run }})"
+            echo "========================================"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/cross.log | sed "s/^/[CROSS] /"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-gdb.log | sed "s/^/[DBG-GDB] /"
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-lldb.log | sed "s/^/[DBG-LLDB] /"
+
+            exit $((cross_exit | dbg_gdb_exit | dbg_lldb_exit))
+          '

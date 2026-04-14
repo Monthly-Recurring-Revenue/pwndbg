@@ -25,6 +25,9 @@ re_addr = r"0x[0-9a-fA-F]{1,12}"
 async def test_mallocng_slot_user(ctrl: Controller, binary: Path):
     import pwndbg.color as color
 
+    # Disable debuginfod before launch to prevent corrupted musl debug info from
+    # being downloaded (seen on Fedora 42), which breaks GDB frame tracking.
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
     # Get out of the break_here() function.
     await ctrl.finish()
@@ -174,6 +177,7 @@ async def test_mallocng_slot_user(ctrl: Controller, binary: Path):
 async def test_mallocng_slot_start(ctrl: Controller, binary: Path):
     import pwndbg.color as color
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
     await ctrl.finish()
 
@@ -202,6 +206,7 @@ async def test_mallocng_slot_start(ctrl: Controller, binary: Path):
 async def test_mallocng_group(ctrl: Controller, binary: Path):
     import pwndbg.color as color
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
     await ctrl.finish()
 
@@ -279,6 +284,7 @@ async def test_mallocng_group(ctrl: Controller, binary: Path):
 async def test_mallocng_meta(ctrl: Controller, binary: Path):
     import pwndbg.color as color
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
     await ctrl.finish()
 
@@ -348,6 +354,7 @@ async def test_mallocng_find(ctrl: Controller, binary: Path):
     import pwndbg
     import pwndbg.color as color
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
     await ctrl.finish()
 
@@ -396,6 +403,7 @@ async def test_mallocng_find(ctrl: Controller, binary: Path):
 async def test_mallocng_metaarea(ctrl: Controller, binary: Path):
     import pwndbg.color as color
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
     await ctrl.finish()
 
@@ -429,6 +437,7 @@ async def test_mallocng_metaarea(ctrl: Controller, binary: Path):
 async def test_mallocng_vis(ctrl: Controller, binary: Path):
     import pwndbg.color as color
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
 
     break_at_sym("break_here")
@@ -501,6 +510,7 @@ async def test_mallocng_vis(ctrl: Controller, binary: Path):
     "binary", [HEAP_MALLOCNG_DYN, HEAP_MALLOCNG_STATIC], ids=["dynamic", "static"]
 )
 async def test_mallocng_dump(ctrl: Controller, binary: Path):
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
     await ctrl.finish()
 

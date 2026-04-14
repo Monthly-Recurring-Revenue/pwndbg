@@ -141,7 +141,12 @@ async def test_try_free_double_free_tcache(ctrl: Controller) -> None:
 
 @pwndbg_test
 async def test_try_free_invalid_next_size_fast(ctrl: Controller) -> None:
+    import pwndbg.libc
+
     chunks = await setup_heap(ctrl, 6)
+
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip("fastbin checks not applicable on glibc 2.43+ (fastbins removed)")
 
     result = await ctrl.execute_and_capture(f"try-free {hex(chunks['a'])}")
     assert "free(): invalid next size (fast)" in result
@@ -150,7 +155,12 @@ async def test_try_free_invalid_next_size_fast(ctrl: Controller) -> None:
 
 @pwndbg_test
 async def test_try_free_double_free(ctrl: Controller) -> None:
+    import pwndbg.libc
+
     chunks = await setup_heap(ctrl, 7)
+
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip("fastbin checks not applicable on glibc 2.43+ (fastbins removed)")
 
     result = await ctrl.execute_and_capture(f"try-free {hex(chunks['a'])}")
     assert "double free or corruption (fasttop)" in result
@@ -159,7 +169,12 @@ async def test_try_free_double_free(ctrl: Controller) -> None:
 
 @pwndbg_test
 async def test_try_free_invalid_fastbin_entry(ctrl: Controller) -> None:
+    import pwndbg.libc
+
     chunks = await setup_heap(ctrl, 8)
+
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip("fastbin checks not applicable on glibc 2.43+ (fastbins removed)")
 
     result = await ctrl.execute_and_capture(f"try-free {hex(chunks['c'])}")
     assert "invalid fastbin entry (free)" in result
