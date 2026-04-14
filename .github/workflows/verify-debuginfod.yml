@@ -46,7 +46,7 @@ jobs:
             gdb --batch
 
             set +e
-            ./tests.sh -d gdb -g dbg -k mallocng > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
             wait $dbg_gdb_pid; dbg_gdb_exit=$?
             set -e
 
@@ -98,7 +98,7 @@ jobs:
             gdb --batch
 
             set +e
-            ./tests.sh -d gdb -g dbg -k mallocng > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
             wait $dbg_gdb_pid; dbg_gdb_exit=$?
             set -e
 
