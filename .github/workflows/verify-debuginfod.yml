@@ -15,14 +15,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]
+        run: [1,2,3,4,5,6,7,8,9,10]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: f58f334561598f954740d359a316e77163bcb60e
+          ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -57,18 +57,18 @@ jobs:
           '
 
   after_x86:
-    name: AFTER 3a1b3f4 x86-64 (run ${{ matrix.run }})
+    name: AFTER 045056e x86-64 (run ${{ matrix.run }})
     strategy:
       fail-fast: false
       matrix:
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]
+        run: [1,2,3,4,5,6,7,8,9,10]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
+          ref: 045056e0a29b260522be0b6187391255f728775a
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -107,14 +107,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]
+        run: [1,2,3,4,5,6,7,8,9,10]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: f58f334561598f954740d359a316e77163bcb60e
+          ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -148,18 +148,18 @@ jobs:
           '
 
   after_arm:
-    name: AFTER 3a1b3f4 aarch64 (run ${{ matrix.run }})
+    name: AFTER 045056e aarch64 (run ${{ matrix.run }})
     strategy:
       fail-fast: false
       matrix:
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]
+        run: [1,2,3,4,5,6,7,8,9,10]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
+          ref: 045056e0a29b260522be0b6187391255f728775a
           fetch-depth: 0
 
       - name: Set up Docker Buildx
