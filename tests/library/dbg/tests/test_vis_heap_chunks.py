@@ -98,21 +98,20 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
     ## This time using `default-visualize-chunk-number` to set `count`, to make sure that the config can work
     await ctrl.execute("set default-visualize-chunk-number 1")
     assert pwndbg.config.default_visualize_chunk_number == 1
-    result = (await ctrl.execute_and_capture("vis-heap-chunk")).splitlines()
-    # No parameters were passed and top isn't reached so help text is shown
+    result_default_1 = (await ctrl.execute_and_capture("vis-heap-chunk")).splitlines()
+    # On pre-2.43 (large tcache struct = first chunk), top isn't reached with count=1 so help text shown.
+    # On 2.43 (small first chunk), top may be reached with count=1, so help text may not appear.
     no_params_help = "Not all chunks were shown, see `vis --help` for more information."
-    assert result == expected + [no_params_help]
+    assert result_default_1 == expected + [no_params_help] or result_default_1 == expected
     await ctrl.execute(
         f"set default-visualize-chunk-number {pwndbg.config.default_visualize_chunk_number.default}"
     )
 
-    ## Test vis_heap_chunk with increasing counts
-    # Instead of hardcoding chunk sizes/content, verify that:
-    # - Each count shows progressively more lines
-    # - The final count (showing all chunks) includes the Top chunk marker
-    result1 = result
-    del result
+    del result_default_1
     del expected
+
+    ## Test vis_heap_chunk with increasing counts
+    result1 = (await ctrl.execute_and_capture("vis-heap-chunk 1")).splitlines()
 
     result2 = (await ctrl.execute_and_capture("vis-heap-chunk 2")).splitlines()
     assert len(result2) > len(result1)
