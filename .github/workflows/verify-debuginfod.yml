@@ -22,7 +22,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: 0162ab639c7b13a4b81d5b5ee0e23f3a17b6a49a
+          ref: f58f334562f33c6d7a37e2e5d5d9f6eaa38a0a3e
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -68,6 +69,7 @@ jobs:
         with:
           repository: pwndbg/pwndbg
           ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -112,7 +114,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: 0162ab639c7b13a4b81d5b5ee0e23f3a17b6a49a
+          ref: f58f334562f33c6d7a37e2e5d5d9f6eaa38a0a3e
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -157,6 +160,7 @@ jobs:
         with:
           repository: pwndbg/pwndbg
           ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

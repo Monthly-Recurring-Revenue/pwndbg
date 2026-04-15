@@ -58,6 +58,16 @@ void configure_heap_layout(void)
     void* unsorted = malloc(0xDF8);
     malloc(0x18);
 
+    // Pre-fill tcache for the remainder size (0x3F0) so that when the remainder
+    // gets sorted during malloc, it overflows tcache and goes to smallbin.
+    // On pre-2.43: TCACHE_FILL_COUNT=7, need 7 chunks. On 2.43: need 16.
+    // Allocate 16 to cover both cases (extras are harmless on pre-2.43).
+    void* smallfill[16];
+    for (int i = 0; i < 16; i++)
+        smallfill[i] = malloc(0x3E8);  // request 0x3E8, chunk size 0x3F0
+    for (int i = 0; i < 16; i++)
+        free(smallfill[i]);  // fills tcache for 0x3F0 size
+
     // Populate smallbin via remaindering & largebin via sorting.
     // free(remainder_me) -> unsorted bin (0xE00 > max tcache, bypasses all tcache bins).
     // malloc(0xA08) -> takes 0xA10 from the 0xE00 chunk, 0x3F0 remainder stays in unsorted.
@@ -68,7 +78,7 @@ void configure_heap_layout(void)
     free(large);
 
     // malloc(0xE08) -> chunk 0xE10, larger than both unsorted entries, forces sorting:
-    //   0x3F0 remainder -> smallbin
+    //   0x3F0 remainder -> tcache full, overflows to smallbin
     //   0xE00 large -> largebin
     //   0xE10 request served from top chunk.
     malloc(0xE08);
@@ -88,7 +98,7 @@ void configure_heap_layout(void)
     // 0xE00 > max tcache, so this always goes to unsorted bin.
     free(unsorted);
 
-    allocated_chunk = mem2chunk(remainder_me);
+    allocated_chunk = mem2chunk(before_remainder);
     tcache_chunk = mem2chunk(tcache_);
     fast_chunk = mem2chunk(fast);
     small_chunk = mem2chunk(before_remainder + 0xA10);
