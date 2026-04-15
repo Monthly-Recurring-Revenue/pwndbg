@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: f58f334562f33c6d7a37e2e5d5d9f6eaa38a0a3e
+          ref: f58f334561598f954740d359a316e77163bcb60e
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -114,7 +114,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: f58f334562f33c6d7a37e2e5d5d9f6eaa38a0a3e
+          ref: f58f334561598f954740d359a316e77163bcb60e
           fetch-depth: 0
 
       - name: Set up Docker Buildx
