@@ -10,18 +10,17 @@ permissions:
   packages: read
 
 jobs:
-  fedora42_before:
-    name: fedora42 BEFORE 3a1b3f4 (run ${{ matrix.run }})
+  before_x86:
+    name: BEFORE x86-64 (run ${{ matrix.run }})
     strategy:
       fail-fast: false
       matrix:
-        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
-          # Commit right before 3a1b3f4 (the delete breakpoints change)
           ref: b434ba638fd72cdddfd3403addf57635315e03ee
           fetch-depth: 0
 
@@ -38,7 +37,7 @@ jobs:
             -t ghcr.io/pwndbg/pwndbg:fedora42 \
             .
 
-      - name: Run Mallocng Tests (BEFORE delete-breakpoints fix)
+      - name: Run Mallocng Tests
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
@@ -46,35 +45,29 @@ jobs:
             gdb --batch
 
             set +e
-            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
-            wait $dbg_gdb_pid; dbg_gdb_exit=$?
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & pid=$!
+            wait $pid; exit_code=$?
             set -e
 
             sed "s/^/[DBG-GDB] /" /tmp/dbg-gdb.log
-
-            echo ""
-            echo "========================================"
-            echo "       SUMMARY (BEFORE, run ${{ matrix.run }})"
-            echo "========================================"
             echo ""
             sed -n "/^\*\*\*/,\$p" /tmp/dbg-gdb.log | sed "s/^/[DBG-GDB] /"
-
-            exit $dbg_gdb_exit
+            exit $exit_code
           '
 
-  fedora42_after:
-    name: fedora42 AFTER 3a1b3f4 (run ${{ matrix.run }})
+  after_x86:
+    name: AFTER 045056e x86-64 (run ${{ matrix.run }})
     strategy:
       fail-fast: false
       matrix:
-        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
-          # The commit that added delete breakpoints
-          ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
+          # glibc 2.43 heap support PR
+          ref: 045056e0a29b260522be0b6187391255f728775a
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -90,7 +83,7 @@ jobs:
             -t ghcr.io/pwndbg/pwndbg:fedora42 \
             .
 
-      - name: Run Mallocng Tests (AFTER delete-breakpoints fix)
+      - name: Run Mallocng Tests
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
@@ -98,18 +91,101 @@ jobs:
             gdb --batch
 
             set +e
-            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & dbg_gdb_pid=$!
-            wait $dbg_gdb_pid; dbg_gdb_exit=$?
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & pid=$!
+            wait $pid; exit_code=$?
             set -e
 
             sed "s/^/[DBG-GDB] /" /tmp/dbg-gdb.log
-
-            echo ""
-            echo "========================================"
-            echo "       SUMMARY (AFTER, run ${{ matrix.run }})"
-            echo "========================================"
             echo ""
             sed -n "/^\*\*\*/,\$p" /tmp/dbg-gdb.log | sed "s/^/[DBG-GDB] /"
+            exit $exit_code
+          '
 
-            exit $dbg_gdb_exit
+  before_arm:
+    name: BEFORE aarch64 (run ${{ matrix.run }})
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: b434ba638fd72cdddfd3403addf57635315e03ee
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Buildx fedora42
+        run: |
+          docker buildx build \
+            --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-arm64 \
+            -f Dockerfile.dnf \
+            --build-arg image=fedora:42 \
+            -t ghcr.io/pwndbg/pwndbg:fedora42 \
+            .
+
+      - name: Run Mallocng Tests
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+
+            set +e
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & pid=$!
+            wait $pid; exit_code=$?
+            set -e
+
+            sed "s/^/[DBG-GDB] /" /tmp/dbg-gdb.log
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-gdb.log | sed "s/^/[DBG-GDB] /"
+            exit $exit_code
+          '
+
+  after_arm:
+    name: AFTER 045056e aarch64 (run ${{ matrix.run }})
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # glibc 2.43 heap support PR
+          ref: 045056e0a29b260522be0b6187391255f728775a
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Buildx fedora42
+        run: |
+          docker buildx build \
+            --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-arm64 \
+            -f Dockerfile.dnf \
+            --build-arg image=fedora:42 \
+            -t ghcr.io/pwndbg/pwndbg:fedora42 \
+            .
+
+      - name: Run Mallocng Tests
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+
+            set +e
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/dbg-gdb.log 2>&1 & pid=$!
+            wait $pid; exit_code=$?
+            set -e
+
+            sed "s/^/[DBG-GDB] /" /tmp/dbg-gdb.log
+            echo ""
+            sed -n "/^\*\*\*/,\$p" /tmp/dbg-gdb.log | sed "s/^/[DBG-GDB] /"
+            exit $exit_code
           '
