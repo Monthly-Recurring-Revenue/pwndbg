@@ -35,8 +35,8 @@ jobs:
         run: |
           docker buildx build \
             --load \
-            --cache-from type=registry,ref=ghcr.io/${{ github.repository }}:archlinux-cache \
-            --cache-to type=registry,ref=ghcr.io/${{ github.repository }}:archlinux-cache,mode=max \
+            --cache-from type=registry,ref=ghcr.io/monthly-recurring-revenue/pwndbg:archlinux-cache \
+            --cache-to type=registry,ref=ghcr.io/monthly-recurring-revenue/pwndbg:archlinux-cache,mode=max \
             -f Dockerfile.arch \
             --build-arg image=archlinux:latest \
             -t ghcr.io/pwndbg/pwndbg:archlinux \
