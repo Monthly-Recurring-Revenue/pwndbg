@@ -55,6 +55,12 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
 
         return bin_ascii(first + second)
 
+    async def hexdump_8B(addr_val):
+        from pwndbg.commands.ptmalloc2 import bin_ascii
+
+        raw = (await ctrl.execute_and_capture(f"x/8xb {addr_val}")).splitlines()
+        return bin_ascii([int(v, 16) for v in raw[0].split(":")[1].split()])
+
     async def vis_heap_line(heap_iter_offset=0x10, suffix=""):
         """Returns data to format a vis_heap_chunk line"""
         addr = heap_iter(heap_iter_offset)
@@ -70,48 +76,22 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
 
     first_hexdump = await hexdump_16B(hex(heap_page.start))
 
-    # Since glibc 2.42 we don't store the amount of chunks in the tcache bin, but rather
-    # the amount of chunks still needed to fill the bin. The value is TCACHE_FILL_COUNT
-    # (7 on glibc 2.42, 16 on glibc 2.43+).
-    num_slots_check = pwndbg.aglib.memory.u8(heap_page.start + pwndbg.aglib.arch.ptrsize * 2)
-    using_num_slots = num_slots_check != 0
-
+    # Build expected output for the first chunk by reading actual memory.
+    # The first chunk may be a tcache struct (pre-2.43) or a regular user allocation (2.43+).
     expected = [
         f"{heap_iter(0):#x}\t0x0000000000000000\t{first_chunk_size | 1:#018x}\t{first_hexdump}",
     ]
 
-    if using_num_slots:
-        # The tcache struct is made up of 2-byte num_slots values and 8-byte pointers to the starts
-        # of the bins.
-        # Build the expected qword from the actual num_slots fill value (7 or 16).
-        slots_qword = int.from_bytes(num_slots_check.to_bytes(2, "little") * 4, "little")
-        slots_qword_str = f"0x{slots_qword:016x}"
+    # First chunk body: (first_chunk_size // 16 - 1) full 16-byte lines + 1 half-line (8 bytes)
+    for _ in range(first_chunk_size // 16 - 1):
+        expected.append(await vis_heap_line())
 
-        ntcachebins: int = first_chunk_size // (2 + 8)
-        nslotslines: float = ntcachebins * 2 / 0x10
-        nptrlines: int = first_chunk_size // 0x10 - int(nslotslines)
-
-        for _ in range(int(nslotslines)):
-            expected.append(
-                f"{heap_iter():#x}\t{slots_qword_str}\t{slots_qword_str}\t................"
-            )
-        if nslotslines - int(nslotslines) == 0.5:
-            expected.append(
-                f"{heap_iter():#x}\t{slots_qword_str}\t0x0000000000000000\t................"
-            )
-            nptrlines -= 1
-        for _ in range(nptrlines - 1):
-            expected.append(
-                f"{heap_iter():#x}\t0x0000000000000000\t0x0000000000000000\t................"
-            )
-        expected.append(f"{heap_iter():#x}\t0x0000000000000000\t                  \t........")
-
-    else:
-        for _ in range(first_chunk_size // 16 - 1):
-            expected.append(
-                f"{heap_iter():#x}\t0x0000000000000000\t0x0000000000000000\t................"
-            )
-        expected.append(f"{heap_iter():#x}\t0x0000000000000000\t                  \t........")
+    # Last line of first chunk: only first qword shown (second qword is next chunk's prev_size)
+    last_addr = heap_iter()
+    last_dq1 = pwndbg.aglib.memory.u64(last_addr)
+    dq2 = last_dq1
+    last_half_hex = await hexdump_8B(last_addr)
+    expected.append(f"{last_addr:#x}\t{last_dq1:#018x}\t                  \t{last_half_hex}")
 
     assert result == expected
 

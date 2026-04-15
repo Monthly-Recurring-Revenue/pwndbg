@@ -46,21 +46,32 @@ void configure_heap_layout(void)
     void* tcache_ = malloc(0x18);
     void* fast = malloc(0x18);
 
-    void* remainder_me = malloc(0x418);
+    // Use request size 0xDF8 (chunk size 0xE00) which is larger than the max tcache size
+    // (~0xDC8 on 64-bit). This ensures free() always goes to the unsorted bin, even on
+    // glibc 2.42+ which added tcache large bins covering sizes up to ~0xDC8.
+    void* remainder_me = malloc(0xDF8);
     malloc(0x18);
 
-    void* large = malloc(0x418);
+    void* large = malloc(0xDF8);
     malloc(0x18);
 
-    void* unsorted = malloc(0x418);
+    void* unsorted = malloc(0xDF8);
     malloc(0x18);
 
-    // Populate 0x200 smallbin & 0x400 largebin.
-    // Use remaindering to avoid tcache (if present).
+    // Populate smallbin via remaindering & largebin via sorting.
+    // free(remainder_me) -> unsorted bin (0xE00 > max tcache, bypasses all tcache bins).
+    // malloc(0xA08) -> takes 0xA10 from the 0xE00 chunk, 0x3F0 remainder stays in unsorted.
     free(remainder_me);
-    void* before_remainder = malloc(0x208);
+    void* before_remainder = malloc(0xA08);
+
+    // free(large) -> unsorted bin. Now unsorted has: 0x3F0 remainder + 0xE00 large.
     free(large);
-    malloc(0x428);
+
+    // malloc(0xE08) -> chunk 0xE10, larger than both unsorted entries, forces sorting:
+    //   0x3F0 remainder -> smallbin
+    //   0xE00 large -> largebin
+    //   0xE10 request served from top chunk.
+    malloc(0xE08);
 
     // Populate 0x20 tcachebin (if present) & fastbin.
     // On pre-2.43: 7 fill tcache, 8th overflows to fastbin.
@@ -73,14 +84,14 @@ void configure_heap_layout(void)
     free(tcache_);
     free(fast);
 
-    // Populate the unsortedbin LAST.
-    // Must be the final free so nothing can sort, consume, or consolidate it.
+    // Populate the unsortedbin LAST so nothing can sort/consume/consolidate it.
+    // 0xE00 > max tcache, so this always goes to unsorted bin.
     free(unsorted);
 
     allocated_chunk = mem2chunk(remainder_me);
     tcache_chunk = mem2chunk(tcache_);
     fast_chunk = mem2chunk(fast);
-    small_chunk = mem2chunk(before_remainder + 0x210);
+    small_chunk = mem2chunk(before_remainder + 0xA10);
     large_chunk = mem2chunk(large);
     unsorted_chunk = mem2chunk(unsorted);
 }
