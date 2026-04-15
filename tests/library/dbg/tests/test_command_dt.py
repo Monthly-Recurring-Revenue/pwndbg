@@ -33,9 +33,9 @@ async def test_command_dt_works_with_address(ctrl: Controller) -> None:
     # counts/num_slots field: values are integers (decimal or hex)
     # entries field: values are pointers (hex) or NULL
     gdb_int_vals = r"(0x[0-9a-f]+|[0-9]+)(, (0x[0-9a-f]+|[0-9]+)( <repeats [0-9]+ times>)?)*"
-    lldb_int_vals = r"(\s*\[[0-9]+\] = [0-9]+\n?)+"
+    lldb_int_vals = r"(\s*(\[[0-9]+\] = [0-9]+|\.\.\.)\n?)+"
     gdb_ptr_vals = r"(0x[0-9a-f]+|NULL)(, (0x[0-9a-f]+|NULL)( <repeats [0-9]+ times>)?)*"
-    lldb_ptr_vals = r"(\s*\[[0-9]+\] = (0x[0-9a-f]+|NULL)\n?)+"
+    lldb_ptr_vals = r"(\s*(\[[0-9]+\] = (0x[0-9a-f]+|NULL)|\.\.\.)\n?)+"
     exp_regex = (
         r"struct tcache_perthread_struct @ 0x[0-9a-f]+"
         rf"\n    0x[0-9a-f]+ \+0x0000 (counts|num_slots) +: +.*\{{({gdb_int_vals}|{lldb_int_vals})\s*\}}"
