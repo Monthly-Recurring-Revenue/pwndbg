@@ -21,9 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # Before delete-breakpoints and glibc 2.43 PRs
+          repository: pwndbg/pwndbg
           ref: 0162ab639c7b13a4b81d5b5ee0e23f3a17b6a49a
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -67,9 +66,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # disconnect3d's delete breakpoints PR
+          repository: pwndbg/pwndbg
           ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -113,9 +111,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # Before delete-breakpoints and glibc 2.43 PRs
+          repository: pwndbg/pwndbg
           ref: 0162ab639c7b13a4b81d5b5ee0e23f3a17b6a49a
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -158,9 +155,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # disconnect3d's delete breakpoints PR
+          repository: pwndbg/pwndbg
           ref: 3a1b3f4d94ec3165d93e64c482345a01fc79884e
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
