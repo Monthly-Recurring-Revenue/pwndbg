@@ -28,13 +28,18 @@ async def test_command_dt_works_with_address(ctrl: Controller) -> None:
     out = await ctrl.execute_and_capture(f'dt "struct tcache_perthread_struct" {tcache_addr}')
 
     # Accounting for differences between architectures and glibc versions (2.42+, 2.43+)
-    # GDB: single-line per field with possible multiple repeats groups
-    # LLDB: multiline with [index] = value per line
-    # Use [\s\S]+? (non-greedy) inside braces to handle both formats
+    # GDB compact: {0x8, 0x10 <repeats 60 times>, 0x0, 0x10 <repeats 14 times>}
+    # LLDB multiline: {\n  [0] = 8\n  [1] = 16\n  ...\n}
+    # counts/num_slots field: values are integers (decimal or hex)
+    # entries field: values are pointers (hex) or NULL
+    gdb_int_vals = r"(0x[0-9a-f]+|[0-9]+)(, (0x[0-9a-f]+|[0-9]+)( <repeats [0-9]+ times>)?)*"
+    lldb_int_vals = r"(\s*\[[0-9]+\] = [0-9]+\n?)+"
+    gdb_ptr_vals = r"(0x[0-9a-f]+|NULL)(, (0x[0-9a-f]+|NULL)( <repeats [0-9]+ times>)?)*"
+    lldb_ptr_vals = r"(\s*\[[0-9]+\] = (0x[0-9a-f]+|NULL)\n?)+"
     exp_regex = (
         r"struct tcache_perthread_struct @ 0x[0-9a-f]+"
-        r"\n    0x[0-9a-f]+ \+0x0000 (counts|num_slots) +: +.*\{[\s\S]+?\}"
-        r"\n    0x[0-9a-f]+ \+0x[0-9a-f]{4} entries +: +.*\{[\s\S]+?\}"
+        rf"\n    0x[0-9a-f]+ \+0x0000 (counts|num_slots) +: +.*\{{({gdb_int_vals}|{lldb_int_vals})\s*\}}"
+        rf"\n    0x[0-9a-f]+ \+0x[0-9a-f]{{4}} entries +: +.*\{{({gdb_ptr_vals}|{lldb_ptr_vals})\s*\}}"
     )
     assert re.match(exp_regex, out)
 
