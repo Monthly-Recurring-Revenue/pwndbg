@@ -28,11 +28,13 @@ async def test_command_dt_works_with_address(ctrl: Controller) -> None:
     out = await ctrl.execute_and_capture(f'dt "struct tcache_perthread_struct" {tcache_addr}')
 
     # Accounting for differences between architectures and glibc versions (2.42+, 2.43+)
-    # On 2.43, GDB output has multiple repeats groups (e.g. {0x8, 0x10 <repeats 60 times>, 0x0, ...})
+    # GDB: single-line per field with possible multiple repeats groups
+    # LLDB: multiline with [index] = value per line
+    # Use [\s\S]+? (non-greedy) inside braces to handle both formats
     exp_regex = (
         r"struct tcache_perthread_struct @ 0x[0-9a-f]+"
-        r"\n    0x[0-9a-f]+ \+0x0000 (counts|num_slots) +: +[\s\S]+\{[\s\S]+\}"
-        r"\n    0x[0-9a-f]+ \+0x[0-9a-f]{4} entries +: +[\s\S]+\{[\s\S]+\}"
+        r"\n    0x[0-9a-f]+ \+0x0000 (counts|num_slots) +: +.*\{[\s\S]+?\}"
+        r"\n    0x[0-9a-f]+ \+0x[0-9a-f]{4} entries +: +.*\{[\s\S]+?\}"
     )
     assert re.match(exp_regex, out)
 
