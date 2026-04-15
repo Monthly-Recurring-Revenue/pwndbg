@@ -106,19 +106,18 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
         f"set default-visualize-chunk-number {pwndbg.config.default_visualize_chunk_number.default}"
     )
 
-    del result
-
     ## Test vis_heap_chunk with increasing counts
     # Instead of hardcoding chunk sizes/content, verify that:
     # - Each count shows progressively more lines
     # - The final count (showing all chunks) includes the Top chunk marker
-    # - vis-heap-chunk with no args shows the same as showing all chunks
+    result1 = result
+    del result
     del expected
 
     result2 = (await ctrl.execute_and_capture("vis-heap-chunk 2")).splitlines()
-    assert len(result2) > len(result)
-    # result2 should start the same as result (minus the last half-line)
-    assert result2[: len(result) - 1] == result[:-1]
+    assert len(result2) > len(result1)
+    # result2 should start the same as result1 (minus the last half-line)
+    assert result2[: len(result1) - 1] == result1[:-1]
 
     result3 = (await ctrl.execute_and_capture("vis-heap-chunk 3")).splitlines()
     assert len(result3) >= len(result2)
@@ -127,7 +126,7 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
     result_all = (await ctrl.execute_and_capture("vis-heap-chunk")).splitlines()
     assert any("<-- Top chunk" in line for line in result_all)
 
-    del result
+    del result1
     del result2
     del result3
     del result_all
