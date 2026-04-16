@@ -1,4 +1,4 @@
-name: Verify Debuginfod Fix
+name: Verify Debuginfod DWARF Quality
 
 on:
   push:
@@ -7,31 +7,91 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 jobs:
-  verify_fix:
-    name: "mallocng with fix (run ${{ matrix.run }})"
+  test_dwarf:
+    name: "DWARF check (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
         run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
-      - name: Build + Test
+      - name: Test debuginfod DWARF quality for musl on Fedora 42
         run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
-          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
-            set -euo pipefail
-            make -C /pwndbg/tests/binaries/host -j4 all
-            gdb --batch
-            set +e
-            ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
-            set -e
-            sed "s/^/[DBG-GDB] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[DBG-GDB] /"
-            exit $ec
-          '
+          set -euo pipefail
+
+          # Install tools
+          sudo apt-get update -qq && sudo apt-get install -y -qq elfutils debuginfod curl > /dev/null 2>&1
+
+          # Both build-ids seen in CI errors
+          BUILD_IDS=(
+            "515302d433fe7c803495583f76e663a055dd4fc5"
+            "300ea4cab9938a967c8c43a8ecb5d17c87087f99"
+          )
+
+          for bid in "${BUILD_IDS[@]}"; do
+            echo "=== Testing build-id: $bid ==="
+
+            # Download debug info from Fedora's debuginfod
+            tmpfile=$(mktemp)
+            http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" "https://debuginfod.fedoraproject.org/buildid/$bid/debuginfo")
+            filesize=$(stat -c%s "$tmpfile" 2>/dev/null || echo 0)
+
+            echo "HTTP status: $http_code"
+            echo "File size: $filesize bytes"
+
+            if [ "$http_code" != "200" ]; then
+              echo "SKIP: Server returned $http_code for $bid"
+              rm -f "$tmpfile"
+              continue
+            fi
+
+            # Check if it's a valid ELF
+            if ! file "$tmpfile" | grep -q ELF; then
+              echo "FAIL: Not a valid ELF file"
+              file "$tmpfile"
+              rm -f "$tmpfile"
+              exit 1
+            fi
+
+            echo "File type: $(file "$tmpfile")"
+
+            # Check DWARF validity with readelf
+            echo "--- readelf --debug-dump=info (first 50 lines) ---"
+            readelf_output=$(readelf --debug-dump=info "$tmpfile" 2>&1 | head -50)
+            echo "$readelf_output"
+
+            # Check for DWARF errors
+            readelf_errors=$(readelf --debug-dump=info "$tmpfile" 2>&1 | grep -ci "error\|invalid\|corrupt\|bad" || true)
+            echo "DWARF error count: $readelf_errors"
+
+            if [ "$readelf_errors" -gt 0 ]; then
+              echo "FAIL: DWARF errors detected!"
+              readelf --debug-dump=info "$tmpfile" 2>&1 | grep -i "error\|invalid\|corrupt\|bad" | head -10
+              rm -f "$tmpfile"
+              exit 1
+            fi
+
+            # Also try eu-readelf (elfutils version, closer to what GDB uses)
+            eu_errors=$(eu-readelf --debug-dump=info "$tmpfile" 2>&1 | grep -ci "error\|invalid\|corrupt" || true)
+            echo "eu-readelf error count: $eu_errors"
+
+            if [ "$eu_errors" -gt 0 ]; then
+              echo "FAIL: eu-readelf DWARF errors detected!"
+              eu-readelf --debug-dump=info "$tmpfile" 2>&1 | grep -i "error\|invalid\|corrupt" | head -10
+              rm -f "$tmpfile"
+              exit 1
+            fi
+
+            # Check file hash to see if content varies between downloads
+            sha256=$(sha256sum "$tmpfile" | cut -d' ' -f1)
+            echo "SHA256: $sha256"
+
+            echo "PASS: $bid looks valid"
+            rm -f "$tmpfile"
+          done
+
+          echo ""
+          echo "=== All checks passed for run ${{ matrix.run }} ==="
