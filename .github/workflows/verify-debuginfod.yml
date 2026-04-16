@@ -1,4 +1,4 @@
-name: Verify Debuginfod DWARF Quality
+name: Verify Debuginfod Root Cause
 
 on:
   push:
@@ -7,90 +7,117 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
-  test_dwarf:
-    name: "DWARF check (run ${{ matrix.run }})"
+  reproduce:
+    name: "reproduce (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
         run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
-      - name: Test debuginfod DWARF quality for musl on Fedora 42
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Fedora 42
         run: |
-          set -euo pipefail
-          sudo apt-get update -qq && sudo apt-get install -y -qq elfutils debuginfod curl > /dev/null 2>&1
+          docker buildx build --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 \
+            -f Dockerfile.dnf --build-arg image=fedora:42 \
+            -t ghcr.io/pwndbg/pwndbg:fedora42 .
 
-          BUILD_IDS=(
-            "515302d433fe7c803495583f76e663a055dd4fc5"
-            "300ea4cab9938a967c8c43a8ecb5d17c87087f99"
-          )
+      - name: Reproduce finish error
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 heap_musl_dyn.native.out 2>/dev/null
 
-          for bid in "${BUILD_IDS[@]}"; do
-            echo "=== Testing build-id: $bid ==="
+            # Test 1: With debuginfod enabled (default) - the failing case
+            echo "=== TEST WITH DEBUGINFOD ENABLED ==="
+            gdb --batch \
+              -ex "file /pwndbg/tests/binaries/host/heap_musl_dyn.native.out" \
+              -ex "set exception-verbose on" \
+              -ex "starti" \
+              -ex "break break_here" \
+              -ex "continue" \
+              -ex "echo === ABOUT TO FINISH ===\n" \
+              -ex "backtrace" \
+              -ex "info frame" \
+              -ex "finish" \
+              -ex "echo === FINISH SUCCEEDED ===\n" \
+              2>&1 | tee /tmp/with_debuginfod.log
 
-            tmpfile=$(mktemp)
-            http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" "https://debuginfod.fedoraproject.org/buildid/$bid/debuginfo")
-            filesize=$(stat -c%s "$tmpfile" 2>/dev/null || echo 0)
+            with_result=$?
+            echo "Exit code with debuginfod: $with_result"
 
-            echo "HTTP status: $http_code"
-            echo "File size: $filesize bytes"
+            # Check for DWARF errors
+            dwarf_errors=$(grep -c "DWARF Error" /tmp/with_debuginfod.log || true)
+            finish_errors=$(grep -c "outermost frame" /tmp/with_debuginfod.log || true)
+            finish_ok=$(grep -c "FINISH SUCCEEDED" /tmp/with_debuginfod.log || true)
 
-            if [ "$http_code" != "200" ]; then
-              echo "SKIP: Server returned $http_code for $bid"
-              rm -f "$tmpfile"
-              continue
-            fi
+            echo "DWARF errors: $dwarf_errors"
+            echo "Finish errors: $finish_errors"
+            echo "Finish succeeded: $finish_ok"
 
-            if ! file "$tmpfile" | grep -q ELF; then
-              echo "FAIL: Not a valid ELF file"
-              file "$tmpfile"
-              rm -f "$tmpfile"
+            # Test 2: With debuginfod disabled - the fix
+            echo ""
+            echo "=== TEST WITH DEBUGINFOD DISABLED ==="
+            gdb --batch \
+              -ex "set debuginfod enabled off" \
+              -ex "set debug-file-directory" \
+              -ex "file /pwndbg/tests/binaries/host/heap_musl_dyn.native.out" \
+              -ex "starti" \
+              -ex "break break_here" \
+              -ex "continue" \
+              -ex "echo === ABOUT TO FINISH ===\n" \
+              -ex "backtrace" \
+              -ex "info frame" \
+              -ex "finish" \
+              -ex "echo === FINISH SUCCEEDED ===\n" \
+              2>&1 | tee /tmp/without_debuginfod.log
+
+            without_result=$?
+            echo "Exit code without debuginfod: $without_result"
+
+            finish_ok_no_dbginfod=$(grep -c "FINISH SUCCEEDED" /tmp/without_debuginfod.log || true)
+            echo "Finish succeeded (no debuginfod): $finish_ok_no_dbginfod"
+
+            # Test 3: With debuginfod but WITHOUT pwndbg loaded
+            echo ""
+            echo "=== TEST WITH DEBUGINFOD BUT NO PWNDBG ==="
+            /pwndbg/.venv/bin/python -c "
+            import subprocess
+            result = subprocess.run([
+              \"gdb\", \"--batch\", \"--nx\",
+              \"-ex\", \"set debuginfod enabled on\",
+              \"-ex\", \"file /pwndbg/tests/binaries/host/heap_musl_dyn.native.out\",
+              \"-ex\", \"starti\",
+              \"-ex\", \"break break_here\",
+              \"-ex\", \"continue\",
+              \"-ex\", \"finish\",
+              \"-ex\", \"echo FINISH_OK\n\",
+            ], capture_output=True, text=True, timeout=30)
+            print(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
+            print(result.stderr[-500:] if len(result.stderr) > 500 else result.stderr)
+            dwarf = result.stderr.count(\"DWARF Error\") + result.stdout.count(\"DWARF Error\")
+            finish_ok = \"FINISH_OK\" in result.stdout
+            print(f\"DWARF errors (no pwndbg): {dwarf}\")
+            print(f\"Finish succeeded (no pwndbg): {finish_ok}\")
+            " 2>&1
+
+            echo ""
+            echo "=== SUMMARY ==="
+            echo "With debuginfod + pwndbg: DWARF=$dwarf_errors, finish_fail=$finish_errors, finish_ok=$finish_ok"
+            echo "Without debuginfod + pwndbg: finish_ok=$finish_ok_no_dbginfod"
+
+            # Fail if finish failed WITH debuginfod (to track failure rate)
+            if [ "$finish_ok" = "0" ]; then
+              echo "RESULT: FINISH FAILED (with debuginfod)"
               exit 1
             fi
-
-            echo "File type: $(file "$tmpfile")"
-
-            # Check DWARF errors using STDERR only (stdout contains symbol names like "dlerror")
-            readelf_stderr=$(readelf --debug-dump=info "$tmpfile" 2>&1 1>/dev/null || true)
-            readelf_error_count=$(echo "$readelf_stderr" | grep -ci "error\|warning\|invalid\|corrupt" || true)
-            echo "readelf stderr error count: $readelf_error_count"
-            if [ -n "$readelf_stderr" ]; then
-              echo "readelf stderr output:"
-              echo "$readelf_stderr" | head -20
-            fi
-
-            # Also run eu-readelf and check stderr
-            eu_stderr=$(eu-readelf --debug-dump=info "$tmpfile" 2>&1 1>/dev/null || true)
-            eu_error_count=$(echo "$eu_stderr" | grep -ci "error\|warning\|invalid\|corrupt" || true)
-            echo "eu-readelf stderr error count: $eu_error_count"
-            if [ -n "$eu_stderr" ]; then
-              echo "eu-readelf stderr output:"
-              echo "$eu_stderr" | head -20
-            fi
-
-            # Try loading it in GDB the way the tests do
-            gdb_check=$(gdb --batch -ex "set debuginfod enabled off" -ex "add-symbol-file $tmpfile" 2>&1 || true)
-            gdb_dwarf_errors=$(echo "$gdb_check" | grep -ci "DWARF Error\|wrong version\|abbrev" || true)
-            echo "GDB DWARF error count: $gdb_dwarf_errors"
-            if [ "$gdb_dwarf_errors" -gt 0 ]; then
-              echo "GDB DWARF errors:"
-              echo "$gdb_check" | grep -i "DWARF Error\|wrong version\|abbrev" | head -10
-            fi
-
-            sha256=$(sha256sum "$tmpfile" | cut -d' ' -f1)
-            echo "SHA256: $sha256"
-
-            if [ "$readelf_error_count" -gt 0 ] || [ "$eu_error_count" -gt 0 ] || [ "$gdb_dwarf_errors" -gt 0 ]; then
-              echo "FAIL: Errors detected for $bid"
-              rm -f "$tmpfile"
-              exit 1
-            fi
-
-            echo "PASS: $bid"
-            rm -f "$tmpfile"
-          done
-
-          echo "=== All checks passed for run ${{ matrix.run }} ==="
+            echo "RESULT: FINISH OK"
+          '
