@@ -21,11 +21,8 @@ jobs:
       - name: Test debuginfod DWARF quality for musl on Fedora 42
         run: |
           set -euo pipefail
-
-          # Install tools
           sudo apt-get update -qq && sudo apt-get install -y -qq elfutils debuginfod curl > /dev/null 2>&1
 
-          # Both build-ids seen in CI errors
           BUILD_IDS=(
             "515302d433fe7c803495583f76e663a055dd4fc5"
             "300ea4cab9938a967c8c43a8ecb5d17c87087f99"
@@ -34,7 +31,6 @@ jobs:
           for bid in "${BUILD_IDS[@]}"; do
             echo "=== Testing build-id: $bid ==="
 
-            # Download debug info from Fedora's debuginfod
             tmpfile=$(mktemp)
             http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" "https://debuginfod.fedoraproject.org/buildid/$bid/debuginfo")
             filesize=$(stat -c%s "$tmpfile" 2>/dev/null || echo 0)
@@ -48,7 +44,6 @@ jobs:
               continue
             fi
 
-            # Check if it's a valid ELF
             if ! file "$tmpfile" | grep -q ELF; then
               echo "FAIL: Not a valid ELF file"
               file "$tmpfile"
@@ -58,40 +53,44 @@ jobs:
 
             echo "File type: $(file "$tmpfile")"
 
-            # Check DWARF validity with readelf
-            echo "--- readelf --debug-dump=info (first 50 lines) ---"
-            readelf_output=$(readelf --debug-dump=info "$tmpfile" 2>&1 | head -50)
-            echo "$readelf_output"
-
-            # Check for DWARF errors
-            readelf_errors=$(readelf --debug-dump=info "$tmpfile" 2>&1 | grep -ci "error\|invalid\|corrupt\|bad" || true)
-            echo "DWARF error count: $readelf_errors"
-
-            if [ "$readelf_errors" -gt 0 ]; then
-              echo "FAIL: DWARF errors detected!"
-              readelf --debug-dump=info "$tmpfile" 2>&1 | grep -i "error\|invalid\|corrupt\|bad" | head -10
-              rm -f "$tmpfile"
-              exit 1
+            # Check DWARF errors using STDERR only (stdout contains symbol names like "dlerror")
+            readelf_stderr=$(readelf --debug-dump=info "$tmpfile" 2>&1 1>/dev/null || true)
+            readelf_error_count=$(echo "$readelf_stderr" | grep -ci "error\|warning\|invalid\|corrupt" || true)
+            echo "readelf stderr error count: $readelf_error_count"
+            if [ -n "$readelf_stderr" ]; then
+              echo "readelf stderr output:"
+              echo "$readelf_stderr" | head -20
             fi
 
-            # Also try eu-readelf (elfutils version, closer to what GDB uses)
-            eu_errors=$(eu-readelf --debug-dump=info "$tmpfile" 2>&1 | grep -ci "error\|invalid\|corrupt" || true)
-            echo "eu-readelf error count: $eu_errors"
-
-            if [ "$eu_errors" -gt 0 ]; then
-              echo "FAIL: eu-readelf DWARF errors detected!"
-              eu-readelf --debug-dump=info "$tmpfile" 2>&1 | grep -i "error\|invalid\|corrupt" | head -10
-              rm -f "$tmpfile"
-              exit 1
+            # Also run eu-readelf and check stderr
+            eu_stderr=$(eu-readelf --debug-dump=info "$tmpfile" 2>&1 1>/dev/null || true)
+            eu_error_count=$(echo "$eu_stderr" | grep -ci "error\|warning\|invalid\|corrupt" || true)
+            echo "eu-readelf stderr error count: $eu_error_count"
+            if [ -n "$eu_stderr" ]; then
+              echo "eu-readelf stderr output:"
+              echo "$eu_stderr" | head -20
             fi
 
-            # Check file hash to see if content varies between downloads
+            # Try loading it in GDB the way the tests do
+            gdb_check=$(gdb --batch -ex "set debuginfod enabled off" -ex "add-symbol-file $tmpfile" 2>&1 || true)
+            gdb_dwarf_errors=$(echo "$gdb_check" | grep -ci "DWARF Error\|wrong version\|abbrev" || true)
+            echo "GDB DWARF error count: $gdb_dwarf_errors"
+            if [ "$gdb_dwarf_errors" -gt 0 ]; then
+              echo "GDB DWARF errors:"
+              echo "$gdb_check" | grep -i "DWARF Error\|wrong version\|abbrev" | head -10
+            fi
+
             sha256=$(sha256sum "$tmpfile" | cut -d' ' -f1)
             echo "SHA256: $sha256"
 
-            echo "PASS: $bid looks valid"
+            if [ "$readelf_error_count" -gt 0 ] || [ "$eu_error_count" -gt 0 ] || [ "$gdb_dwarf_errors" -gt 0 ]; then
+              echo "FAIL: Errors detected for $bid"
+              rm -f "$tmpfile"
+              exit 1
+            fi
+
+            echo "PASS: $bid"
             rm -f "$tmpfile"
           done
 
-          echo ""
           echo "=== All checks passed for run ${{ matrix.run }} ==="
