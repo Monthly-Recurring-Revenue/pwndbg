@@ -1,4 +1,4 @@
-name: Verify Debuginfod Root Cause
+name: Verify Fedora Image Root Cause
 
 on:
   push:
@@ -10,10 +10,10 @@ permissions:
   packages: read
 
 jobs:
-  # Run the actual mallocng test WITH debuginfod (no disable_debuginfod)
-  # This should show ~2% failure rate
-  with_debuginfod:
-    name: "WITH debuginfod (run ${{ matrix.run }})"
+  # Run mallocng tests on the OLD fedora:42 image (pinned to pre-Feb-2026 digest)
+  # This should show 0% failure rate if the newer image is the root cause
+  old_fedora_image:
+    name: "OLD fedora:42 image (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
@@ -24,11 +24,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
-          ref: dev
+          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
       - uses: docker/setup-buildx-action@v3
-      - name: Build + Test (debuginfod ON)
+      - name: Build + Test (old fedora:42 image)
         run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
+          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42@sha256:ee88ab8a5c8bf78687ddcecadf824767e845adc19d8cdedb56f48521eb162b43 -t ghcr.io/pwndbg/pwndbg:fedora42 .
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
             make -C /pwndbg/tests/binaries/host -j4 all
@@ -36,15 +36,15 @@ jobs:
             set +e
             ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
             set -e
-            sed "s/^/[DBG-GDB] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[DBG-GDB] /"
+            sed "s/^/[OLD-IMAGE] /" /tmp/out.log
+            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[OLD-IMAGE] /"
             exit $ec
           '
 
-  # Run the same test WITH our disable_debuginfod fix
-  # This should show 0% failure rate
-  without_debuginfod:
-    name: "WITHOUT debuginfod (run ${{ matrix.run }})"
+  # Run the same commit with the latest fedora:42 image (post-Feb-2026)
+  # This should show ~5% failure rate if the newer image is the root cause
+  new_fedora_image:
+    name: "NEW fedora:42 image (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
@@ -52,10 +52,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      # Uses our fix-tests branch which has disable_debuginfod
       - uses: actions/checkout@v6
+        with:
+          repository: pwndbg/pwndbg
+          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
       - uses: docker/setup-buildx-action@v3
-      - name: Build + Test (debuginfod OFF)
+      - name: Build + Test (new fedora:42 image)
         run: |
           docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
@@ -65,7 +67,7 @@ jobs:
             set +e
             ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
             set -e
-            sed "s/^/[DBG-GDB] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[DBG-GDB] /"
+            sed "s/^/[NEW-IMAGE] /" /tmp/out.log
+            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[NEW-IMAGE] /"
             exit $ec
           '
