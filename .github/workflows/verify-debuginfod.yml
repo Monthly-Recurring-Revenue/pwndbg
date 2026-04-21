@@ -19,16 +19,20 @@ jobs:
       matrix:
         run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
           ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
       - uses: docker/setup-buildx-action@v3
+      - name: Patch Dockerfile for old fedora:42 compatibility
+        run: |
+          # Old image doesn't have gawk; jemalloc configure requires awk
+          sed -i '0,/dnf install/{s/dnf install/dnf install -y gawk \&\& dnf install/}' Dockerfile.dnf
       - name: Build + Test (old fedora:42 image)
         run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42@sha256:ee88ab8a5c8bf78687ddcecadf824767e845adc19d8cdedb56f48521eb162b43 -t ghcr.io/pwndbg/pwndbg:fedora42 .
+          docker buildx build --load -f Dockerfile.dnf --build-arg image=fedora:42@sha256:ee88ab8a5c8bf78687ddcecadf824767e845adc19d8cdedb56f48521eb162b43 -t ghcr.io/pwndbg/pwndbg:fedora42 .
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
             make -C /pwndbg/tests/binaries/host -j4 all
