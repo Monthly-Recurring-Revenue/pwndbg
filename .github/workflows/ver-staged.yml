@@ -49,33 +49,53 @@ jobs:
             # Find the musl library GDB will load at runtime
             MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
             echo "[STAGE] musl library: $MUSL_SO"
+            if [ -z "$MUSL_SO" ] || [ ! -f "$MUSL_SO" ]; then
+              echo "[STAGE] FATAL: could not locate musl .so via ldconfig"; exit 1
+            fi
 
-            # Get its build ID
-            BID=$(eu-readelf -n "$MUSL_SO" 2>/dev/null | grep -Eo "[0-9a-f]{40}" | head -1)
+            # Also make sure we export DEBUGINFOD_URLS up front so BOTH
+            # debuginfod-find AND gdb use the same server config.
+            if [ -z "${DEBUGINFOD_URLS:-}" ]; then
+              DEBUGINFOD_URLS=$(cat /etc/debuginfod/*.urls 2>/dev/null | tr "\n" " " || echo "")
+              export DEBUGINFOD_URLS
+            fi
+            echo "[STAGE] DEBUGINFOD_URLS=$DEBUGINFOD_URLS"
+
+            # Get its build ID. Pipefail+set -e will kill the whole script
+            # if any tool in the pipeline fails or grep finds nothing, so
+            # compute BID in its own subshell with failures tolerated.
+            set +e
+            BID=$(eu-readelf -n "$MUSL_SO" 2>&1 | grep -Eo "[0-9a-f]{40}" | head -1)
             if [ -z "$BID" ]; then
-              echo "[STAGE] ERROR: no build ID found for $MUSL_SO"; exit 1
+              # Fallback to binutils readelf if elfutils is missing/broken
+              BID=$(readelf -n "$MUSL_SO" 2>&1 | grep -Eo "[0-9a-f]{40}" | head -1)
+            fi
+            set -e
+            if [ -z "$BID" ]; then
+              echo "[STAGE] FATAL: no build ID found for $MUSL_SO. readelf dump:"
+              (eu-readelf -n "$MUSL_SO" 2>&1 || readelf -n "$MUSL_SO" 2>&1 || true) | sed "s/^/[STAGE]   /"
+              exit 1
             fi
             echo "[STAGE] build ID: $BID"
 
-            # Pre-fetch debuginfo via debuginfod-find (populates the user cache).
-            # If this fails we still continue; the test is about "what happens if
-            # the file is locally present" so we need it present.
-            DEBUGINFO=$(debuginfod-find debuginfo "$MUSL_SO" 2>/dev/null || true)
-            if [ -z "$DEBUGINFO" ] || [ ! -f "$DEBUGINFO" ]; then
-              echo "[STAGE] WARNING: debuginfod-find could not fetch debuginfo."
-              echo "[STAGE] Trying the elfutils urls file directly..."
-              DEBUGINFOD_URLS=$(cat /etc/debuginfod/*.urls 2>/dev/null || echo "")
-              echo "[STAGE] DEBUGINFOD_URLS=$DEBUGINFOD_URLS"
-              export DEBUGINFOD_URLS
-              DEBUGINFO=$(debuginfod-find debuginfo "$MUSL_SO" 2>/dev/null || true)
+            # Fetch the REAL debuginfo via debuginfod-find. If we cannot get
+            # the real file, this experiment is invalid -- a placeholder
+            # would let GDB fall through to debuginfod anyway and defeat
+            # the whole point of the test. So FAIL HARD instead.
+            set +e
+            DEBUGINFO=$(debuginfod-find debuginfo "$MUSL_SO" 2>/tmp/dbgfind.err)
+            dbgfind_ec=$?
+            set -e
+            if [ $dbgfind_ec -ne 0 ] || [ -z "$DEBUGINFO" ] || [ ! -f "$DEBUGINFO" ]; then
+              echo "[STAGE] FATAL: debuginfod-find could not fetch musl debuginfo."
+              echo "[STAGE] debuginfod-find exit=$dbgfind_ec"
+              sed "s/^/[STAGE]   stderr: /" /tmp/dbgfind.err
+              echo "[STAGE] Without a real debuginfo file, staging is meaningless:"
+              echo "[STAGE] GDB would reject a placeholder and fall through to the"
+              echo "[STAGE] debuginfod path, invalidating the experiment."
+              exit 1
             fi
-
-            if [ -z "$DEBUGINFO" ] || [ ! -f "$DEBUGINFO" ]; then
-              echo "[STAGE] FATAL: still no debuginfo file — test cannot run meaningfully"
-              echo "[STAGE] Falling back: creating empty placeholder so GDB finds SOMETHING locally"
-              DEBUGINFO=/tmp/musl_placeholder.debug
-              cp "$MUSL_SO" "$DEBUGINFO"   # use the so itself as its own "debuginfo" (minimal)
-            fi
+            echo "[STAGE] fetched real debuginfo: $DEBUGINFO ($(stat -c %s "$DEBUGINFO") bytes)"
 
             # Place at the standard build-id path GDB checks BEFORE debuginfod
             PREFIX=${BID:0:2}

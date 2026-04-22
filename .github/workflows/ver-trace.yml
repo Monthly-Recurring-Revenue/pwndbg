@@ -38,16 +38,35 @@ jobs:
             --build-arg image=fedora@sha256:b3d16134560afa00d7cc2a9e4967eb5b954512805f3fe27d8e70bbed078e22ea \
             -t ghcr.io/pwndbg/pwndbg:fedora42 .
       - name: Run tests with debuginfod trace
+        env:
+          # Honored by the debuginfod CLIENT LIBRARY regardless of GDB
+          # version — gives request/response trace on stderr even if
+          # `set debug debuginfod` is unavailable in this GDB.
+          DEBUGINFOD_VERBOSE: "1"
+          DEBUGINFOD_PROGRESS: "1"
         run: |
-          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+          docker compose run -T --rm --pull never \
+            -e DEBUGINFOD_VERBOSE=1 \
+            -e DEBUGINFOD_PROGRESS=1 \
+            -v $(pwd):/pwndbg \
+            fedora42 bash -c '
             set -euo pipefail
             make -C /pwndbg/tests/binaries/host -j4 all
 
-            # Inject trace-on into gdbinit after pwndbg finishes loading.
-            # "set debug debuginfod on" logs every debuginfod activity to stderr.
-            echo "" >> /pwndbg/gdbinit.py
-            echo "import gdb as _gdb" >> /pwndbg/gdbinit.py
-            echo "_gdb.execute(\"set debug debuginfod on\")" >> /pwndbg/gdbinit.py
+            # Try to enable GDB-side debuginfod debug. Newer GDBs support
+            # "set debug debuginfod on"; older ones (like the one in this
+            # image) do not, so wrap in try/except and rely on the
+            # client-library env vars as the fallback trace source.
+            {
+              echo ""
+              echo "import gdb as _gdb"
+              echo "try:"
+              echo "    _gdb.execute(\"set debug debuginfod on\")"
+              echo "    print(\"[TRACE] GDB-level debuginfod tracing enabled\")"
+              echo "except _gdb.error as _e:"
+              echo "    print(\"[TRACE] GDB debuginfod tracing unavailable: \" + str(_e))"
+              echo "    print(\"[TRACE] Relying on DEBUGINFOD_VERBOSE/PROGRESS env vars\")"
+            } >> /pwndbg/gdbinit.py
 
             gdb --batch
             set +e
