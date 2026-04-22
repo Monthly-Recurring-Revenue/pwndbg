@@ -10,7 +10,7 @@ permissions:
   packages: read
 
 jobs:
-  # Inspect musl debuginfo DWARF format — runs once, no matrix
+  # Inspect musl debuginfo DWARF format - runs once, no matrix
   # Shows whether musl-1.2.5-5.fc42 debuginfo uses DW_UT_partial (broken) or DW_UT_compile (fine)
   inspect_musl_dwarf:
     name: "Inspect musl debuginfo DWARF format"
@@ -33,7 +33,6 @@ jobs:
 
             MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
             echo "=== musl SO: $MUSL_SO ==="
-            file "$MUSL_SO"
 
             BUILD_ID=$(eu-readelf -n "$MUSL_SO" 2>/dev/null | grep "Build ID" | awk "{print \$NF}")
             echo "=== Build ID: $BUILD_ID ==="
@@ -52,6 +51,43 @@ jobs:
             else
               echo "Could not download debuginfo: $DEBUGINFO"
             fi
+          '
+
+  # Pre-warm debuginfod cache then run tests - if failures jump to ~100% it proves timing is the cause
+  # The cache means GDB finds the musl debuginfo instantly every run, no network luck involved
+  gdb17_prewarmed:
+    name: "gdb-for-pwndbg 17.1 PREWARMED (run ${{ matrix.run }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: pwndbg/pwndbg
+          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        run: |
+          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
+      - name: Run tests with pre-warmed debuginfod cache
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+            set -euo pipefail
+            echo "[PREWARMED] Pre-downloading musl debuginfo into cache..."
+            MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
+            debuginfod-find debuginfo "$MUSL_SO" 2>&1 || true
+            echo "[PREWARMED] Cache warm. Running tests..."
+            make -C /pwndbg/tests/binaries/host -j4 all
+            gdb --batch
+            set +e
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
+            set -e
+            sed "s/^/[PREWARMED] /" /tmp/out.log
+            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[PREWARMED] /"
+            exit $ec
           '
 
   # GDB 17.1 — expect intermittent failures (~3%)
@@ -87,7 +123,7 @@ jobs:
             exit $ec
           '
 
-  # GDB 16.3 — downgrade gdb-for-pwndbg before running; expect no failures
+  # GDB 16.3 - downgrade gdb-for-pwndbg before running; expect no failures
   gdb16:
     name: "gdb-for-pwndbg 16.3 (run ${{ matrix.run }})"
     strategy:
