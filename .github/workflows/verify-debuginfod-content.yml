@@ -1,0 +1,68 @@
+name: Verify Debuginfod Content Consistency
+
+on:
+  push:
+    branches:
+      - fix-tests
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # Download musl debuginfo 100 times and hash it each time.
+  # If all hashes match -> server serves identical content every time -> not a server issue.
+  # If hashes differ   -> server is serving different content intermittently.
+  # Also runs the mallocng test and records pass/fail alongside the hash,
+  # so we can correlate: do failing runs get a different file than passing runs?
+  check_content:
+    name: "debuginfod content check (run ${{ matrix.run }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: pwndbg/pwndbg
+          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        run: |
+          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
+      - name: Run test and check debuginfod content
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+            gdb --batch
+
+            MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
+
+            set +e
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
+            set -e
+
+            # Download debuginfod content and hash it
+            DEBUGINFO=$(debuginfod-find debuginfo "$MUSL_SO" 2>/dev/null) || true
+            if [ -n "$DEBUGINFO" ] && [ -f "$DEBUGINFO" ]; then
+              HASH=$(sha256sum "$DEBUGINFO" | awk "{print \$1}")
+              SIZE=$(wc -c < "$DEBUGINFO")
+              echo "=== DEBUGINFO HASH: $HASH ==="
+              echo "=== DEBUGINFO SIZE: $SIZE bytes ==="
+            else
+              echo "=== DEBUGINFO HASH: NOT_DOWNLOADED ==="
+              echo "=== DEBUGINFO SIZE: 0 ==="
+            fi
+
+            if [ $ec -eq 0 ]; then
+              echo "=== TEST RESULT: PASS ==="
+            else
+              echo "=== TEST RESULT: FAIL ==="
+              sed -n "/^\*\*\*/,\$p" /tmp/out.log
+            fi
+
+            exit $ec
+          '
