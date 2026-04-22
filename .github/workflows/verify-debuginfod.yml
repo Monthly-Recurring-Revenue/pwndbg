@@ -31,12 +31,27 @@ jobs:
         run: |
           docker pull ghcr.io/pwndbg/pwndbg:fedora42-amd64@sha256:5e1ba902c4ff26d6b0a2f8aaeb982767e03dacf42b3e554a092443822ae95836
           docker tag ghcr.io/pwndbg/pwndbg:fedora42-amd64@sha256:5e1ba902c4ff26d6b0a2f8aaeb982767e03dacf42b3e554a092443822ae95836 ghcr.io/pwndbg/pwndbg:fedora42
-          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 gdb --version
-          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c 'rpm -q gdb; rpm -qa | grep -i musl || true'
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c '
+            echo "=== which gdb ==="
+            which gdb
+            echo "=== gdb --version ==="
+            gdb --version
+            echo "=== /usr/bin/gdb --version ==="
+            /usr/bin/gdb --version || echo "no /usr/bin/gdb"
+            echo "=== /venv/bin/gdb exists? ==="
+            ls -la /venv/bin/gdb 2>/dev/null || echo "no /venv/bin/gdb"
+            echo "=== gdb debuginfod support ==="
+            gdb --batch -ex "set debuginfod enabled on" -ex "show debuginfod enabled" 2>&1 || echo "debuginfod not supported"
+            echo "=== rpm packages ==="
+            rpm -q gdb; rpm -qa | grep -i musl || true
+          '
       - name: Test with old image
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
+            echo "[OLD] which gdb: $(which gdb)"
+            echo "[OLD] gdb path: $(ls -la $(which gdb))"
+            echo "[OLD] debuginfod support: $(gdb --batch -ex "set debuginfod enabled on" -ex "show debuginfod enabled" 2>&1 || echo none)"
             make -C /pwndbg/tests/binaries/host -j4 all
             gdb --batch
             set +e
@@ -66,12 +81,27 @@ jobs:
       - name: Build with current fedora:42 and check GDB version
         run: |
           docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
-          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 gdb --version
-          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c 'rpm -q gdb; rpm -qa | grep -i musl || true'
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c '
+            echo "=== which gdb ==="
+            which gdb
+            echo "=== gdb --version ==="
+            gdb --version
+            echo "=== /usr/bin/gdb --version ==="
+            /usr/bin/gdb --version || echo "no /usr/bin/gdb"
+            echo "=== /venv/bin/gdb exists? ==="
+            ls -la /venv/bin/gdb 2>/dev/null || echo "no /venv/bin/gdb"
+            echo "=== gdb debuginfod support ==="
+            gdb --batch -ex "set debuginfod enabled on" -ex "show debuginfod enabled" 2>&1 || echo "debuginfod not supported"
+            echo "=== rpm packages ==="
+            rpm -q gdb; rpm -qa | grep -i musl || true
+          '
       - name: Test with new image
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
+            echo "[NEW] which gdb: $(which gdb)"
+            echo "[NEW] gdb path: $(ls -la $(which gdb))"
+            echo "[NEW] debuginfod support: $(gdb --batch -ex "set debuginfod enabled on" -ex "show debuginfod enabled" 2>&1 || echo none)"
             make -C /pwndbg/tests/binaries/host -j4 all
             gdb --batch
             set +e
