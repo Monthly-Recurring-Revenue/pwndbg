@@ -10,25 +10,31 @@ permissions:
   packages: read
 
 jobs:
-  # Run mallocng tests on the OLD fedora:42 image (pinned to pre-Feb-2026 digest)
-  # This should show 0% failure rate if the newer image is the root cause
-  old_fedora_image:
-    name: "OLD fedora:42 image (run ${{ matrix.run }})"
+  # Use the pre-built Feb 5 pwndbg image directly (old GDB, no rebuild)
+  # If this passes, the Feb 9/10 GDB update is the root cause
+  old_pwndbg_image:
+    name: "OLD pwndbg image / Feb5 GDB (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
         run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
           ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
-      - uses: docker/setup-buildx-action@v3
-      - name: Build + Test (old fedora:42 image)
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Pull Feb 5 pre-built image and check GDB version
         run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42@sha256:b3d16134560afa00d7cc2a9e4967eb5b954512805f3fe27d8e70bbed078e22ea -t ghcr.io/pwndbg/pwndbg:fedora42 .
+          docker pull ghcr.io/pwndbg/pwndbg:fedora42-amd64@sha256:5e1ba902c4ff26d6b0a2f8aaeb982767e03dacf42b3e554a092443822ae95836
+          docker tag ghcr.io/pwndbg/pwndbg:fedora42-amd64@sha256:5e1ba902c4ff26d6b0a2f8aaeb982767e03dacf42b3e554a092443822ae95836 ghcr.io/pwndbg/pwndbg:fedora42
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 gdb --version
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 rpm -q gdb musl
+      - name: Test with old image
+        run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
             make -C /pwndbg/tests/binaries/host -j4 all
@@ -36,15 +42,15 @@ jobs:
             set +e
             ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
             set -e
-            sed "s/^/[OLD-IMAGE] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[OLD-IMAGE] /"
+            sed "s/^/[OLD-GDB] /" /tmp/out.log
+            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[OLD-GDB] /"
             exit $ec
           '
 
-  # Run the same commit with the latest fedora:42 image (post-Feb-2026)
-  # This should show ~5% failure rate if the newer image is the root cause
-  new_fedora_image:
-    name: "NEW fedora:42 image (run ${{ matrix.run }})"
+  # Build fresh with current fedora:42 (new GDB from Feb 9/10 update)
+  # If this fails, confirms GDB update is root cause
+  new_pwndbg_image:
+    name: "NEW pwndbg image / current GDB (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
@@ -57,9 +63,13 @@ jobs:
           repository: pwndbg/pwndbg
           ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
       - uses: docker/setup-buildx-action@v3
-      - name: Build + Test (new fedora:42 image)
+      - name: Build with current fedora:42 and check GDB version
         run: |
           docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 gdb --version
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 rpm -q gdb musl
+      - name: Test with new image
+        run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
             make -C /pwndbg/tests/binaries/host -j4 all
@@ -67,7 +77,7 @@ jobs:
             set +e
             ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
             set -e
-            sed "s/^/[NEW-IMAGE] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[NEW-IMAGE] /"
+            sed "s/^/[NEW-GDB] /" /tmp/out.log
+            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[NEW-GDB] /"
             exit $ec
           '
