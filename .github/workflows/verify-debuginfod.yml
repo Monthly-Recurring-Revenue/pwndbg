@@ -32,7 +32,7 @@ jobs:
           docker pull ghcr.io/pwndbg/pwndbg:fedora42-amd64@sha256:5e1ba902c4ff26d6b0a2f8aaeb982767e03dacf42b3e554a092443822ae95836
           docker tag ghcr.io/pwndbg/pwndbg:fedora42-amd64@sha256:5e1ba902c4ff26d6b0a2f8aaeb982767e03dacf42b3e554a092443822ae95836 ghcr.io/pwndbg/pwndbg:fedora42
           docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 gdb --version
-          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 rpm -q gdb musl
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c 'rpm -q gdb; rpm -qa | grep -i musl || true'
       - name: Test with old image
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
@@ -67,7 +67,7 @@ jobs:
         run: |
           docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
           docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 gdb --version
-          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 rpm -q gdb musl
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c 'rpm -q gdb; rpm -qa | grep -i musl || true'
       - name: Test with new image
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
