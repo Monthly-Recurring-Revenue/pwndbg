@@ -10,13 +10,26 @@ permissions:
   packages: read
 
 jobs:
-  # Download musl debuginfo 100 times and hash it each time.
-  # If all hashes match -> server serves identical content every time -> not a server issue.
-  # If hashes differ   -> server is serving different content intermittently.
-  # Also runs the mallocng test and records pass/fail alongside the hash,
-  # so we can correlate: do failing runs get a different file than passing runs?
+  # Dump GDB's REAL debuginfod cache contents after each mallocng run
+  # and correlate with pass/fail. Prior version used post-hoc
+  # `debuginfod-find` which returned NOT_DOWNLOADED for every single run --
+  # that was broken (standalone container had no usable network/URLs).
+  #
+  # This version:
+  #  1. Pins DEBUGINFOD_CACHE_PATH to a known dir so we can inspect it.
+  #  2. Exports DEBUGINFOD_URLS from the elfutils default so the client
+  #     actually knows where to fetch from (the jan22 image lost this
+  #     for subshells unless we re-export it).
+  #  3. After the test, walks the cache, hashes every file, prints size
+  #     + mtime + sha256. Passing AND failing runs produce real data.
+  #  4. Correlates cache contents with TEST RESULT: PASS/FAIL.
+  #
+  # We want to answer: do failing runs see different debuginfo bytes than
+  # passing runs? If all hashes identical -> content is not the race.
+  # If hashes differ / some runs have a partial/empty file -> GDB is
+  # acting on a mid-transfer file.
   check_content:
-    name: "debuginfod content check (run ${{ matrix.run }})"
+    name: "debuginfod real-cache content (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
@@ -24,45 +37,84 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           repository: pwndbg/pwndbg
           ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
       - uses: docker/setup-buildx-action@v3
       - name: Build image
         run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
-      - name: Run test and check debuginfod content
+          docker buildx build --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 \
+            -f Dockerfile.dnf \
+            --build-arg image=fedora@sha256:b3d16134560afa00d7cc2a9e4967eb5b954512805f3fe27d8e70bbed078e22ea \
+            -t ghcr.io/pwndbg/pwndbg:fedora42 .
+      - name: Run mallocng, dump GDB's real debuginfod cache, correlate with pass/fail
         run: |
-          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
-            set -euo pipefail
-            make -C /pwndbg/tests/binaries/host -j4 all
-            gdb --batch
+          docker compose run -T --rm --pull never \
+            -e DEBUGINFOD_CACHE_PATH=/tmp/dbginfod_cache \
+            -v $(pwd):/pwndbg \
+            fedora42 bash -c '
+              set -euo pipefail
+              make -C /pwndbg/tests/binaries/host -j4 all
 
-            MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
+              # Ensure the client has URLs to hit. The jan22 image has
+              # /etc/debuginfod/*.urls -- read and export so the tests can
+              # see them (the compose shell may not inherit elfutils defaults).
+              if [ -z "${DEBUGINFOD_URLS:-}" ]; then
+                export DEBUGINFOD_URLS="$(cat /etc/debuginfod/*.urls 2>/dev/null | tr "\n" " " || echo "")"
+              fi
+              echo "[CACHE_TEST] DEBUGINFOD_URLS=$DEBUGINFOD_URLS"
+              echo "[CACHE_TEST] DEBUGINFOD_CACHE_PATH=$DEBUGINFOD_CACHE_PATH"
 
-            set +e
-            ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
-            set -e
+              mkdir -p "$DEBUGINFOD_CACHE_PATH"
 
-            # Download debuginfod content and hash it
-            DEBUGINFO=$(debuginfod-find debuginfo "$MUSL_SO" 2>/dev/null) || true
-            if [ -n "$DEBUGINFO" ] && [ -f "$DEBUGINFO" ]; then
-              HASH=$(sha256sum "$DEBUGINFO" | awk "{print \$1}")
-              SIZE=$(wc -c < "$DEBUGINFO")
-              echo "=== DEBUGINFO HASH: $HASH ==="
-              echo "=== DEBUGINFO SIZE: $SIZE bytes ==="
-            else
-              echo "=== DEBUGINFO HASH: NOT_DOWNLOADED ==="
-              echo "=== DEBUGINFO SIZE: 0 ==="
-            fi
+              # Sanity: prove the server is reachable BEFORE running the test.
+              # This also pre-warms the cache so passing/failing can be compared
+              # against the same starting state.
+              MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
+              echo "[CACHE_TEST] musl: $MUSL_SO"
+              echo "[CACHE_TEST] --- pre-test debuginfod-find ---"
+              time debuginfod-find debuginfo "$MUSL_SO" 2>&1 | sed "s/^/[CACHE_TEST] /" || true
 
-            if [ $ec -eq 0 ]; then
-              echo "=== TEST RESULT: PASS ==="
-            else
-              echo "=== TEST RESULT: FAIL ==="
-              sed -n "/^\*\*\*/,\$p" /tmp/out.log
-            fi
+              gdb --batch
 
-            exit $ec
-          '
+              # Run mallocng with the same cache dir GDB will use.
+              set +e
+              ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
+              set -e
+
+              echo "[CACHE_TEST] --- post-test cache walk ---"
+              # Every regular file in the cache, with size, mtime (UTC), sha256
+              find "$DEBUGINFOD_CACHE_PATH" -type f -printf "%p\t%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\n" 2>/dev/null \
+                | while IFS=$'"'"'\t'"'"' read -r path size mtime; do
+                    if [ -r "$path" ]; then
+                      hash=$(sha256sum "$path" 2>/dev/null | awk "{print \$1}")
+                    else
+                      hash="unreadable"
+                    fi
+                    echo "[CACHE_TEST] CACHEFILE size=$size mtime=$mtime sha256=$hash path=$path"
+                  done
+
+              # Also print what the client *claims* the canonical file is now
+              echo "[CACHE_TEST] --- post-test debuginfod-find (should be cached, near-zero time) ---"
+              time debuginfod-find debuginfo "$MUSL_SO" 2>&1 | sed "s/^/[CACHE_TEST] /" || true
+              FINAL=$(debuginfod-find debuginfo "$MUSL_SO" 2>/dev/null || true)
+              if [ -n "$FINAL" ] && [ -f "$FINAL" ]; then
+                FINAL_HASH=$(sha256sum "$FINAL" | awk "{print \$1}")
+                FINAL_SIZE=$(wc -c < "$FINAL")
+                echo "[CACHE_TEST] CANONICAL path=$FINAL size=$FINAL_SIZE sha256=$FINAL_HASH"
+              else
+                echo "[CACHE_TEST] CANONICAL NOT_FOUND"
+              fi
+
+              # Tail of the test log so we can see WHICH mallocng test failed
+              if [ $ec -eq 0 ]; then
+                echo "[CACHE_TEST] === TEST RESULT: PASS ==="
+              else
+                echo "[CACHE_TEST] === TEST RESULT: FAIL ==="
+                sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[CACHE_TEST] /"
+              fi
+
+              exit $ec
+            '
