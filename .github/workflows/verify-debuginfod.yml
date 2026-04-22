@@ -1,4 +1,4 @@
-name: Verify gdb-for-pwndbg Version Is Root Cause
+name: Verify Musl Debuginfo DWARF Root Cause
 
 on:
   push:
@@ -10,7 +10,51 @@ permissions:
   packages: read
 
 jobs:
-  # GDB 17.1 - expect intermittent failures (~3%)
+  # Inspect musl debuginfo DWARF format — runs once, no matrix
+  # Shows whether musl-1.2.5-5.fc42 debuginfo uses DW_UT_partial (broken) or DW_UT_compile (fine)
+  inspect_musl_dwarf:
+    name: "Inspect musl debuginfo DWARF format"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: pwndbg/pwndbg
+          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        run: |
+          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
+      - name: Inspect musl debuginfo
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+            set -euo pipefail
+            dnf install -y -q elfutils 2>/dev/null || true
+
+            MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
+            echo "=== musl SO: $MUSL_SO ==="
+            file "$MUSL_SO"
+
+            BUILD_ID=$(eu-readelf -n "$MUSL_SO" 2>/dev/null | grep "Build ID" | awk "{print \$NF}")
+            echo "=== Build ID: $BUILD_ID ==="
+
+            echo "=== Downloading debuginfo via debuginfod ==="
+            DEBUGINFO=$(debuginfod-find debuginfo "$MUSL_SO" 2>&1)
+            echo "debuginfod-find output: $DEBUGINFO"
+
+            if [ -f "$DEBUGINFO" ]; then
+              echo "=== DWARF unit types in musl debuginfo ==="
+              eu-readelf --debug-dump=info "$DEBUGINFO" 2>/dev/null | grep -E "unit_type|DW_UT_|DWARF version" | head -50
+              echo "=== Summary: DW_UT_partial count ==="
+              eu-readelf --debug-dump=info "$DEBUGINFO" 2>/dev/null | grep -c "DW_UT_partial" || echo "0 DW_UT_partial units"
+              echo "=== Summary: DW_UT_compile count ==="
+              eu-readelf --debug-dump=info "$DEBUGINFO" 2>/dev/null | grep -c "DW_UT_compile" || echo "0 DW_UT_compile units"
+            else
+              echo "Could not download debuginfo: $DEBUGINFO"
+            fi
+          '
+
+  # GDB 17.1 — expect intermittent failures (~3%)
   gdb17:
     name: "gdb-for-pwndbg 17.1 (run ${{ matrix.run }})"
     strategy:
@@ -43,7 +87,7 @@ jobs:
             exit $ec
           '
 
-  # GDB 16.3 - downgrade gdb-for-pwndbg before running; expect no failures
+  # GDB 16.3 — downgrade gdb-for-pwndbg before running; expect no failures
   gdb16:
     name: "gdb-for-pwndbg 16.3 (run ${{ matrix.run }})"
     strategy:
