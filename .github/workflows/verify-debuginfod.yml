@@ -10,149 +10,72 @@ permissions:
   packages: read
 
 jobs:
-  # Inspect musl debuginfo DWARF format - runs once, no matrix
-  # Shows whether musl-1.2.5-5.fc42 debuginfo uses DW_UT_partial (broken) or DW_UT_compile (fine)
-  inspect_musl_dwarf:
-    name: "Inspect musl debuginfo DWARF format"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: pwndbg/pwndbg
-          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
-      - uses: docker/setup-buildx-action@v3
-      - name: Build image
-        run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
-      - name: Inspect musl debuginfo
-        run: |
-          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
-            set -euo pipefail
-            dnf install -y -q elfutils 2>/dev/null || true
-
-            MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
-            echo "=== musl SO: $MUSL_SO ==="
-
-            BUILD_ID=$(eu-readelf -n "$MUSL_SO" 2>/dev/null | grep "Build ID" | awk "{print \$NF}")
-            echo "=== Build ID: $BUILD_ID ==="
-
-            echo "=== Downloading debuginfo via debuginfod ==="
-            DEBUGINFO=$(debuginfod-find debuginfo "$MUSL_SO" 2>&1)
-            echo "debuginfod-find output: $DEBUGINFO"
-
-            if [ -f "$DEBUGINFO" ]; then
-              echo "=== DWARF unit types in musl debuginfo ==="
-              eu-readelf --debug-dump=info "$DEBUGINFO" 2>/dev/null | grep -E "unit_type|DW_UT_|DWARF version" | head -50
-              echo "=== Summary: DW_UT_partial count ==="
-              eu-readelf --debug-dump=info "$DEBUGINFO" 2>/dev/null | grep -c "DW_UT_partial" || echo "0 DW_UT_partial units"
-              echo "=== Summary: DW_UT_compile count ==="
-              eu-readelf --debug-dump=info "$DEBUGINFO" 2>/dev/null | grep -c "DW_UT_compile" || echo "0 DW_UT_compile units"
-            else
-              echo "Could not download debuginfo: $DEBUGINFO"
-            fi
-          '
-
-  # Pre-warm debuginfod cache then run tests - if failures jump to ~100% it proves timing is the cause
-  # The cache means GDB finds the musl debuginfo instantly every run, no network luck involved
-  gdb17_prewarmed:
-    name: "gdb-for-pwndbg 17.1 PREWARMED (run ${{ matrix.run }})"
+  # Oct 13 fedora:42 base - pre-Nov-23, has musl-2.fc42, expect NO failures
+  oct13_base:
+    name: "Oct13 fedora:42 base / musl-2.fc42 (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
           ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
       - uses: docker/setup-buildx-action@v3
-      - name: Build image
+      - name: Build with Oct 13 fedora:42 base and check musl version
         run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
-      - name: Run tests with pre-warmed debuginfod cache
+          docker buildx build --load -f Dockerfile.dnf \
+            --build-arg image=fedora@sha256:aa7befe5cfd1f0e062728c16453cd1c479d4134c7b85eac00172f3025ab0d522 \
+            -t ghcr.io/pwndbg/pwndbg:fedora42 .
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c 'rpm -qa | grep -i musl || true'
+      - name: Run tests
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
-            echo "[PREWARMED] Pre-downloading musl debuginfo into cache..."
-            MUSL_SO=$(ldconfig -p 2>/dev/null | grep "ld-musl" | awk "{print \$NF}" | head -1)
-            debuginfod-find debuginfo "$MUSL_SO" 2>&1 || true
-            echo "[PREWARMED] Cache warm. Running tests..."
             make -C /pwndbg/tests/binaries/host -j4 all
             gdb --batch
             set +e
             ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
             set -e
-            sed "s/^/[PREWARMED] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[PREWARMED] /"
+            sed "s/^/[OCT13] /" /tmp/out.log
+            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[OCT13] /"
             exit $ec
           '
 
-  # GDB 17.1 — expect intermittent failures (~3%)
-  gdb17:
-    name: "gdb-for-pwndbg 17.1 (run ${{ matrix.run }})"
+  # Jan 22 fedora:42 base - post-Nov-23, has musl-5.fc42, expect ~3% failures
+  jan22_base:
+    name: "Jan22 fedora:42 base / musl-5.fc42 (run ${{ matrix.run }})"
     strategy:
       fail-fast: false
       matrix:
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
         with:
           repository: pwndbg/pwndbg
           ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
       - uses: docker/setup-buildx-action@v3
-      - name: Build image
+      - name: Build with Jan 22 fedora:42 base and check musl version
         run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
-      - name: Run tests with gdb-for-pwndbg 17.1
+          docker buildx build --load -f Dockerfile.dnf \
+            --build-arg image=fedora@sha256:b3d16134560afa00d7cc2a9e4967eb5b954512805f3fe27d8e70bbed078e22ea \
+            -t ghcr.io/pwndbg/pwndbg:fedora42 .
+          docker run --rm ghcr.io/pwndbg/pwndbg:fedora42 bash -c 'rpm -qa | grep -i musl || true'
+      - name: Run tests
         run: |
           docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
             set -euo pipefail
-            echo "[GDB17] gdb version: $(gdb --version | head -1)"
             make -C /pwndbg/tests/binaries/host -j4 all
             gdb --batch
             set +e
             ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
             set -e
-            sed "s/^/[GDB17] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[GDB17] /"
-            exit $ec
-          '
-
-  # GDB 16.3 - downgrade gdb-for-pwndbg before running; expect no failures
-  gdb16:
-    name: "gdb-for-pwndbg 16.3 (run ${{ matrix.run }})"
-    strategy:
-      fail-fast: false
-      matrix:
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: pwndbg/pwndbg
-          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
-      - uses: docker/setup-buildx-action@v3
-      - name: Build image
-        run: |
-          docker buildx build --load --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 -f Dockerfile.dnf --build-arg image=fedora:42 -t ghcr.io/pwndbg/pwndbg:fedora42 .
-      - name: Run tests with gdb-for-pwndbg 16.3
-        run: |
-          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
-            set -euo pipefail
-            /venv/bin/pip install -q --force-reinstall gdb-for-pwndbg==16.3.0.post6
-            echo "[GDB16] gdb version: $(gdb --version | head -1)"
-            make -C /pwndbg/tests/binaries/host -j4 all
-            gdb --batch
-            set +e
-            ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
-            set -e
-            sed "s/^/[GDB16] /" /tmp/out.log
-            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[GDB16] /"
+            sed "s/^/[JAN22] /" /tmp/out.log
+            sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[JAN22] /"
             exit $ec
           '
