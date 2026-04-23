@@ -62,10 +62,21 @@ jobs:
       - name: Build libdebuginfod (Zig)
         working-directory: debuginfod-zig
         run: |
-          zig build -Doptimize=Debug -Dlinkage=static --verbose 2>&1 | tail -40
+          zig build -Doptimize=Debug -Dlinkage=static --verbose 2>&1 | tail -80
           echo ""
-          echo "--- install tree ---"
-          ls -la zig-out/lib/ zig-out/include/elfutils/ 2>/dev/null || true
+          echo "--- zig-out contents ---"
+          find zig-out -maxdepth 4 -type f -o -type d | sort
+          echo "---"
+          # The .a MUST exist for the reproducer to link. Upstream install
+          # layout varies across Zig versions; we locate the archive instead
+          # of hard-coding the path.
+          ARCHIVE=$(find zig-out -name 'libdebuginfod.a' -type f | head -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "FATAL: libdebuginfod.a not found in zig-out"
+            exit 1
+          fi
+          echo "archive: $ARCHIVE ($(stat -c %s "$ARCHIVE") bytes)"
+          echo "ZIG_ARCHIVE=$GITHUB_WORKSPACE/debuginfod-zig/$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Fetch target musl debuginfo file
         id: fetchfile
@@ -84,8 +95,11 @@ jobs:
         run: |
           cat > /tmp/repro.c <<'EOF'
           /* Tiny harness: ask the Zig-built libdebuginfod for a debuginfo file
-           * by build-id. Server is mocked locally so we control the bytes. */
-          #include <elfutils/debuginfod.h>
+           * by build-id. Server is mocked locally so we control the bytes.
+           * We include the upstream header directly from the debuginfod-zig
+           * repo (upstream/debuginfod.h) rather than the installed path,
+           * because the install-tree layout varies across zig versions. */
+          #include "debuginfod.h"
           #include <stdio.h>
           #include <stdlib.h>
           #include <string.h>
@@ -129,10 +143,15 @@ jobs:
           }
           EOF
 
-          # Compile against the Zig-built static archive.
-          ZIG_OUT="$GITHUB_WORKSPACE/debuginfod-zig/zig-out"
-          cc -O0 -g -I "$ZIG_OUT/include" /tmp/repro.c \
-              "$ZIG_OUT/lib/libdebuginfod.a" \
+          UPSTREAM_HDR_DIR="$GITHUB_WORKSPACE/debuginfod-zig/upstream"
+          if [ ! -f "$UPSTREAM_HDR_DIR/debuginfod.h" ]; then
+            echo "FATAL: debuginfod.h not found at $UPSTREAM_HDR_DIR/"
+            ls -la "$UPSTREAM_HDR_DIR" || true
+            exit 1
+          fi
+
+          cc -O0 -g -I "$UPSTREAM_HDR_DIR" /tmp/repro.c \
+              "$ZIG_ARCHIVE" \
               -lpthread -lm -ldl -o /tmp/repro
           file /tmp/repro
           ldd /tmp/repro || true
