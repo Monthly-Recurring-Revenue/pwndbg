@@ -10,22 +10,23 @@ permissions:
   packages: read
 
 jobs:
-  # Build pwndbg/debuginfod-zig from source, link it into a tiny C harness
-  # that calls debuginfod_find_debuginfo(), point the client at a local
-  # mock HTTP server that serves a controlled file, and run the harness
-  # in a tight loop.
+  # Build pwndbg/debuginfod-zig via `nix build .#static` (same flow as
+  # upstream CI and as pypi-for-pwndbg's libdebuginfod-zig.nix). nix is
+  # needed because the project pins a purged dev-Zig nightly
+  # (0.16.0-dev.1458+755a3d957, dated 2025-11-24); the URL on
+  # ziglang.org/builds returns 404 but zig-overlay keeps a cached copy.
   #
-  # Two matrix legs feed the SAME client two different files:
-  #   - fedora: the 2.4 MB Fedora 42 musl debuginfo that crashes in CI
-  #   - ubuntu: the 985 KB Ubuntu 22.04 musl debuginfo (control)
+  # The built static archive is linked into a tiny C harness that calls
+  # debuginfod_find_debuginfo() against a local mock HTTP server serving
+  # a controlled file. Two matrix legs, 500 iters each:
+  #   - fedora: 2.4 MB Fedora 42 musl debuginfo that crashes in real CI
+  #   - ubuntu: 985 KB Ubuntu 22.04 musl debuginfo (control)
   #
-  # If the Zig parser bug is file-size / file-shape dependent, the Fedora
-  # leg should panic a measurable fraction of the time and the Ubuntu leg
-  # should be clean. If BOTH panic -> bug is not file-specific. If NEITHER
-  # panics -> the standalone library isn't the source; the issue is the
-  # way GDB drives it (threading, fork, solib handler).
-  #
-  # 500 iterations per leg; we said anything under 100 is noise.
+  # Decision matrix:
+  #   fedora panics + ubuntu clean -> file-shape-dependent Zig parser bug
+  #   both panic                   -> file-independent client bug
+  #   neither panics               -> standalone lib is clean; GDB drives
+  #                                   it into trouble (threading/fork/solib)
   zig_repro:
     name: "zig debuginfod-zig stress (${{ matrix.distro }} musl file)"
     strategy:
@@ -33,11 +34,8 @@ jobs:
       matrix:
         include:
           - distro: fedora
-            # Fedora 42 musl-libc-1.2.5-3.fc42.x86_64 debuginfo build-id.
-            # This is the file whose bytes we feed to the client 500x.
             build_id: "515302d433fe7c803495583f76e663a055dd4fc5"
           - distro: ubuntu
-            # Ubuntu 22.04 musl 1.2.2-4 debuginfo build-id.
             build_id: "e642b1372f59d5f8a828f027ef1344b7cd17cc94"
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -47,40 +45,38 @@ jobs:
           repository: pwndbg/debuginfod-zig
           path: debuginfod-zig
 
-      - name: Install Zig (pinned)
-        # debuginfod-zig/build.zig.zon requires minimum_zig_version 0.16.0.
-        # The download URL format is zig-<arch>-<os>-<ver>.tar.xz (NOT
-        # zig-<os>-<arch>-<ver>, which was pre-0.14 and 404s today).
-        run: |
-          ZIG_VERSION=0.16.0
-          curl -fsSLo /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
-          sudo mkdir -p /opt/zig
-          sudo tar -C /opt/zig --strip-components=1 -xf /tmp/zig.tar.xz
-          echo "/opt/zig" >> "$GITHUB_PATH"
-          /opt/zig/zig version
+      - name: Install Nix
+        uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
-      - name: Build libdebuginfod (Zig)
+      - name: Build libdebuginfod.a via nix
         working-directory: debuginfod-zig
         run: |
-          zig build -Doptimize=Debug -Dlinkage=static --verbose 2>&1 | tail -80
+          set -euo pipefail
+          nix build .#static --print-build-logs
           echo ""
-          echo "--- zig-out contents ---"
-          find zig-out -maxdepth 4 -type f -o -type d | sort
+          echo "--- result tree ---"
+          ls -laR result/ | head -60
           echo "---"
-          # The .a MUST exist for the reproducer to link. Upstream install
-          # layout varies across Zig versions; we locate the archive instead
-          # of hard-coding the path.
-          ARCHIVE=$(find zig-out -name 'libdebuginfod.a' -type f | head -1)
+
+          ARCHIVE=$(find result -name 'libdebuginfod.a' -type f | head -1)
           if [ -z "$ARCHIVE" ]; then
-            echo "FATAL: libdebuginfod.a not found in zig-out"
+            echo "FATAL: libdebuginfod.a not found under result/"
+            find result -type f | head -50
             exit 1
           fi
-          echo "archive: $ARCHIVE ($(stat -c %s "$ARCHIVE") bytes)"
-          echo "ZIG_ARCHIVE=$GITHUB_WORKSPACE/debuginfod-zig/$ARCHIVE" >> "$GITHUB_ENV"
+          echo "archive: $ARCHIVE ($(stat -Lc %s "$ARCHIVE") bytes)"
+          # result/ is a symlink into /nix/store so use realpath
+          REAL=$(realpath "$ARCHIVE")
+          echo "ZIG_ARCHIVE=$REAL" >> "$GITHUB_ENV"
 
       - name: Fetch target musl debuginfo file
         id: fetchfile
         run: |
+          set -euo pipefail
           BID='${{ matrix.build_id }}'
           URL="https://debuginfod.pwndbg.re/buildid/${BID}/debuginfo"
           echo "fetching $URL"
@@ -88,17 +84,13 @@ jobs:
           SIZE=$(stat -c %s /tmp/target.debug)
           SHA=$(sha256sum /tmp/target.debug | awk '{print $1}')
           echo "file size=$SIZE sha256=$SHA"
-          echo "file_size=$SIZE" >> "$GITHUB_OUTPUT"
-          echo "file_sha=$SHA"  >> "$GITHUB_OUTPUT"
 
-      - name: Write C harness
+      - name: Write and compile C harness
         run: |
+          set -euo pipefail
           cat > /tmp/repro.c <<'EOF'
-          /* Tiny harness: ask the Zig-built libdebuginfod for a debuginfo file
-           * by build-id. Server is mocked locally so we control the bytes.
-           * We include the upstream header directly from the debuginfod-zig
-           * repo (upstream/debuginfod.h) rather than the installed path,
-           * because the install-tree layout varies across zig versions. */
+          /* Call debuginfod_find_debuginfo() once. Mock server serves the
+           * same file on every request so the bytes-parsing path runs. */
           #include "debuginfod.h"
           #include <stdio.h>
           #include <stdlib.h>
@@ -150,19 +142,18 @@ jobs:
             exit 1
           fi
 
+          # client.zig uses std.http (pure Zig) — no libcurl/openssl needed.
+          # libc + pthread + libm + libdl is sufficient.
           cc -O0 -g -I "$UPSTREAM_HDR_DIR" /tmp/repro.c \
               "$ZIG_ARCHIVE" \
               -lpthread -lm -ldl -o /tmp/repro
           file /tmp/repro
-          ldd /tmp/repro || true
 
       - name: Start mock debuginfod server
         run: |
-          # Minimal HTTP server that serves the same file bytes on every
-          # /buildid/*/debuginfo request. No 202, no chunked games, no
-          # retries -- just vanilla content-length + body.
+          set -euo pipefail
           cat > /tmp/serve.py <<'PY'
-          import http.server, socketserver, sys, os, threading, time
+          import http.server, socketserver, os
           PATH = os.environ["SERVE_FILE"]
           PORT = int(os.environ.get("PORT", "8088"))
           with open(PATH, "rb") as f:
@@ -171,16 +162,17 @@ jobs:
 
           class H(http.server.BaseHTTPRequestHandler):
               def do_GET(self):
+                  if self.path == "/__health":
+                      self.send_response(200); self.send_header("Content-Length", "2")
+                      self.end_headers(); self.wfile.write(b"ok"); return
                   if "/buildid/" in self.path and self.path.endswith("/debuginfo"):
                       self.send_response(200)
                       self.send_header("Content-Type", "application/octet-stream")
                       self.send_header("Content-Length", str(len(DATA)))
                       self.end_headers()
-                      self.wfile.write(DATA)
-                  else:
-                      self.send_response(404); self.end_headers()
-              def log_message(self, *a, **kw):
-                  pass
+                      self.wfile.write(DATA); return
+                  self.send_response(404); self.end_headers()
+              def log_message(self, *a, **kw): pass
 
           class TS(socketserver.ThreadingMixIn, http.server.HTTPServer):
               daemon_threads = True
@@ -191,18 +183,28 @@ jobs:
           PY
           SERVE_FILE=/tmp/target.debug PORT=8088 python3 /tmp/serve.py &
           echo $! > /tmp/server.pid
-          # Wait for listener
-          for i in $(seq 1 30); do
-            if curl -fsS -o /dev/null "http://127.0.0.1:8088/buildid/deadbeef/debuginfo"; then
-              echo "server up (try $i)"; break
+
+          # Readiness: poll /__health (returns 200) with -fsS. Without the
+          # dedicated endpoint curl -f would fail on the 404 we previously
+          # used, making the "ready" check a silent no-op.
+          UP=0
+          for i in $(seq 1 50); do
+            if curl -fsS -o /dev/null "http://127.0.0.1:8088/__health"; then
+              echo "server up (try $i)"; UP=1; break
             fi
             sleep 0.2
           done
+          if [ "$UP" != "1" ]; then
+            echo "FATAL: mock server did not come up"
+            exit 1
+          fi
 
       - name: Stress-loop the Zig client (500 iterations)
         env:
           BID: "${{ matrix.build_id }}"
+          DISTRO: "${{ matrix.distro }}"
         run: |
+          set -uo pipefail
           export DEBUGINFOD_URLS="http://127.0.0.1:8088"
           export DEBUGINFOD_CACHE_PATH=/tmp/zig_cache
           export DEBUGINFOD_TIMEOUT=10
@@ -210,23 +212,35 @@ jobs:
           PANIC=0
           NONZERO=0
           OK=0
+          TIMEOUT=0
 
           mkdir -p /tmp/logs
           for i in $(seq 1 $ITERS); do
-            # Fresh cache each iteration so every run actually downloads the
-            # file through the client's network path. That's what triggers
-            # the parser in GDB, so we want the same shape here.
+            # Fresh cache each iteration so the client actually fetches
+            # the bytes through the network/parse path every time.
             rm -rf "$DEBUGINFOD_CACHE_PATH"
             mkdir -p "$DEBUGINFOD_CACHE_PATH"
 
-            /tmp/repro "$BID" > "/tmp/logs/run_$i.out" 2> "/tmp/logs/run_$i.err"
+            # timeout(1) prevents one stuck iteration from hanging the job.
+            # 15s per call is generous; the mock is local.
+            timeout --signal=KILL 15 /tmp/repro "$BID" \
+                > "/tmp/logs/run_$i.out" 2> "/tmp/logs/run_$i.err"
             ec=$?
 
+            # Panic detection:
+            #  - grep stderr for "panic:" (zig debug-mode runtime panics)
+            #  - fall back to exit codes 134 (SIGABRT) and 139 (SIGSEGV)
+            #    in case stderr got truncated before flush
             if grep -q "panic:" "/tmp/logs/run_$i.err"; then
               PANIC=$((PANIC+1))
               echo "--- run $i PANIC (ec=$ec) ---"
               head -20 "/tmp/logs/run_$i.err"
               echo "---"
+            elif [ $ec -eq 134 ] || [ $ec -eq 139 ]; then
+              PANIC=$((PANIC+1))
+              echo "--- run $i SIGABRT/SEGV (ec=$ec, stderr empty/lost) ---"
+            elif [ $ec -eq 137 ] || [ $ec -eq 124 ]; then
+              TIMEOUT=$((TIMEOUT+1))
             elif [ $ec -ne 0 ]; then
               NONZERO=$((NONZERO+1))
             else
@@ -235,12 +249,13 @@ jobs:
           done
 
           echo ""
-          echo "========= SUMMARY (${{ matrix.distro }}) ========="
-          echo "iterations: $ITERS"
-          echo "ok:         $OK"
-          echo "panic:      $PANIC"
+          echo "========= SUMMARY ($DISTRO) ========="
+          echo "iterations:       $ITERS"
+          echo "ok:               $OK"
+          echo "panic:            $PANIC"
+          echo "timeout:          $TIMEOUT"
           echo "nonzero_no_panic: $NONZERO"
-          echo "=================================================="
+          echo "======================================"
 
       - name: Stop mock server
         if: always()
