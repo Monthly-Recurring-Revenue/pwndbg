@@ -62,14 +62,16 @@ jobs:
           ls -laR result/ | head -60
           echo "---"
 
-          ARCHIVE=$(find result -name 'libdebuginfod.a' -type f | head -1)
+          # result/ is a symlink into /nix/store. find(1) does NOT follow
+          # command-line symlinks by default, so without -L it treats result
+          # as a leaf symlink and never descends. -L makes it follow.
+          ARCHIVE=$(find -L result -name 'libdebuginfod.a' -type f | head -1)
           if [ -z "$ARCHIVE" ]; then
             echo "FATAL: libdebuginfod.a not found under result/"
-            find result -type f | head -50
+            find -L result -type f | head -50
             exit 1
           fi
           echo "archive: $ARCHIVE ($(stat -Lc %s "$ARCHIVE") bytes)"
-          # result/ is a symlink into /nix/store so use realpath
           REAL=$(realpath "$ARCHIVE")
           echo "ZIG_ARCHIVE=$REAL" >> "$GITHUB_ENV"
 
