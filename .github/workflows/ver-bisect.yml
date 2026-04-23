@@ -62,6 +62,17 @@ jobs:
             make -C /pwndbg/tests/binaries/host -j4 all
             echo "[BISECT] Pinning gdb-for-pwndbg to $GDB_VER"
             /venv/bin/pip install --force-reinstall --no-deps "gdb-for-pwndbg==$GDB_VER" 2>&1 | sed "s/^/[BISECT] pip: /"
+
+            # Some gdb-for-pwndbg versions (e.g. 16.3.0.post1) have NO
+            # debuginfod support compiled in. pwndbg runs
+            # "set debuginfod enabled on" unconditionally during setup,
+            # which raises gdb.error and aborts init. Wrap that specific
+            # call in a try/except that swallows debuginfod-related
+            # errors only. Harmless no-op for versions that support it.
+            sed -i "s|^            gdb.execute(line)\$|            try:\n                gdb.execute(line)\n            except gdb.error as _e:\n                if \"debuginfod\" not in str(_e): raise|" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py
+            echo "[BISECT] pwndbg setup patched to tolerate missing debuginfod"
+            grep -n -A 4 "for line in pre_commands" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py | sed "s/^/[BISECT] PATCH: /"
+
             GDB_BIN=$(/venv/bin/python -c "import gdb_for_pwndbg, os; print(os.path.join(os.path.dirname(gdb_for_pwndbg.__file__), \"_vendor/bin/gdb\"))")
             echo "[BISECT] GDB binary: $GDB_BIN ($(stat -c %s "$GDB_BIN") bytes)"
             /venv/bin/pip show gdb-for-pwndbg | sed "s/^/[BISECT] /"
@@ -115,6 +126,17 @@ jobs:
             make -C /pwndbg/tests/binaries/host -j4 all
             echo "[BISECT] Pinning gdb-for-pwndbg to $GDB_VER"
             /venv/bin/pip install --force-reinstall --no-deps "gdb-for-pwndbg==$GDB_VER" 2>&1 | sed "s/^/[BISECT] pip: /"
+
+            # Some gdb-for-pwndbg versions (e.g. 16.3.0.post1) have NO
+            # debuginfod support compiled in. pwndbg runs
+            # "set debuginfod enabled on" unconditionally during setup,
+            # which raises gdb.error and aborts init. Wrap that specific
+            # call in a try/except that swallows debuginfod-related
+            # errors only. Harmless no-op for versions that support it.
+            sed -i "s|^            gdb.execute(line)\$|            try:\n                gdb.execute(line)\n            except gdb.error as _e:\n                if \"debuginfod\" not in str(_e): raise|" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py
+            echo "[BISECT] pwndbg setup patched to tolerate missing debuginfod"
+            grep -n -A 4 "for line in pre_commands" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py | sed "s/^/[BISECT] PATCH: /"
+
             GDB_BIN=$(/venv/bin/python -c "import gdb_for_pwndbg, os; print(os.path.join(os.path.dirname(gdb_for_pwndbg.__file__), \"_vendor/bin/gdb\"))")
             echo "[BISECT] GDB binary: $GDB_BIN ($(stat -c %s "$GDB_BIN") bytes)"
             /venv/bin/pip show gdb-for-pwndbg | sed "s/^/[BISECT] /"
@@ -168,6 +190,17 @@ jobs:
             make -C /pwndbg/tests/binaries/host -j4 all
             echo "[BISECT] Pinning gdb-for-pwndbg to $GDB_VER"
             /venv/bin/pip install --force-reinstall --no-deps "gdb-for-pwndbg==$GDB_VER" 2>&1 | sed "s/^/[BISECT] pip: /"
+
+            # Some gdb-for-pwndbg versions (e.g. 16.3.0.post1) have NO
+            # debuginfod support compiled in. pwndbg runs
+            # "set debuginfod enabled on" unconditionally during setup,
+            # which raises gdb.error and aborts init. Wrap that specific
+            # call in a try/except that swallows debuginfod-related
+            # errors only. Harmless no-op for versions that support it.
+            sed -i "s|^            gdb.execute(line)\$|            try:\n                gdb.execute(line)\n            except gdb.error as _e:\n                if \"debuginfod\" not in str(_e): raise|" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py
+            echo "[BISECT] pwndbg setup patched to tolerate missing debuginfod"
+            grep -n -A 4 "for line in pre_commands" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py | sed "s/^/[BISECT] PATCH: /"
+
             GDB_BIN=$(/venv/bin/python -c "import gdb_for_pwndbg, os; print(os.path.join(os.path.dirname(gdb_for_pwndbg.__file__), \"_vendor/bin/gdb\"))")
             echo "[BISECT] GDB binary: $GDB_BIN ($(stat -c %s "$GDB_BIN") bytes)"
             /venv/bin/pip show gdb-for-pwndbg | sed "s/^/[BISECT] /"
@@ -221,6 +254,17 @@ jobs:
             make -C /pwndbg/tests/binaries/host -j4 all
             echo "[BISECT] Pinning gdb-for-pwndbg to $GDB_VER"
             /venv/bin/pip install --force-reinstall --no-deps "gdb-for-pwndbg==$GDB_VER" 2>&1 | sed "s/^/[BISECT] pip: /"
+
+            # Some gdb-for-pwndbg versions (e.g. 16.3.0.post1) have NO
+            # debuginfod support compiled in. pwndbg runs
+            # "set debuginfod enabled on" unconditionally during setup,
+            # which raises gdb.error and aborts init. Wrap that specific
+            # call in a try/except that swallows debuginfod-related
+            # errors only. Harmless no-op for versions that support it.
+            sed -i "s|^            gdb.execute(line)\$|            try:\n                gdb.execute(line)\n            except gdb.error as _e:\n                if \"debuginfod\" not in str(_e): raise|" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py
+            echo "[BISECT] pwndbg setup patched to tolerate missing debuginfod"
+            grep -n -A 4 "for line in pre_commands" /pwndbg/pwndbg/dbg_mod/gdb/__init__.py | sed "s/^/[BISECT] PATCH: /"
+
             GDB_BIN=$(/venv/bin/python -c "import gdb_for_pwndbg, os; print(os.path.join(os.path.dirname(gdb_for_pwndbg.__file__), \"_vendor/bin/gdb\"))")
             echo "[BISECT] GDB binary: $GDB_BIN ($(stat -c %s "$GDB_BIN") bytes)"
             /venv/bin/pip show gdb-for-pwndbg | sed "s/^/[BISECT] /"
