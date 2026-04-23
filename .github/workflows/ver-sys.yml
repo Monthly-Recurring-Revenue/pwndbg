@@ -15,20 +15,95 @@ permissions:
 # how pypi-for-pwndbg builds gdb-for-pwndbg (zig-cc injects compiler-rt
 # + UB safety-check panic handlers into every C translation unit).
 #
-# Swap the gdb binary for Fedora's /usr/bin/gdb (built with regular gcc,
-# no zig-cc instrumentation) and re-run mallocng with debuginfod ENABLED.
-# Everything else stays identical: same image, same tests, same musl
-# debuginfod path.
+# Two matrix legs, 200 runs each, run side-by-side in the same workflow
+# so the comparison is against fresh data (not historical runs on a
+# different day / image cache / runner pool):
 #
-# Outcomes:
-#   system gdb flakes at similar rate -> bug is in upstream gdb's
-#     debuginfod integration; file upstream.
-#   system gdb is clean              -> bug is specific to the zig-cc
-#     build of gdb-for-pwndbg (compiler-rt / UB trip wires, or a
-#     zig-cc codegen issue in the DWARF path).
+#   baseline_gdb_for_pwndbg:
+#     - Uses the default gdb-for-pwndbg 17.x (zig-cc built) shipped in
+#       the Fedora42 image. Debuginfod ENABLED. Establishes the current
+#       flake rate under matching conditions.
 #
-# Matrix of 200 runs so we catch a ~3% flake with high probability.
+#   system_gdb:
+#     - Uninstalls gdb-for-pwndbg, falls through to /usr/bin/gdb
+#       (Fedora stock, regular gcc build). Debuginfod ENABLED.
+#
+# Compare the two flake rates:
+#   baseline flakes ~3%, system clean            -> bug is in the
+#     zig-cc build path: zig-cc compiler-rt / UB panic handlers, glibc
+#     2.28 pin, or other build-environment differences. NOT an upstream
+#     gdb bug.
+#   both flake at similar rate                   -> bug is in upstream
+#     gdb 17.1 itself; file against binutils-gdb.
+#   baseline flakes but system flakes WORSE      -> unlikely; would
+#     suggest system gdbs libdebuginfod path is worse (different client).
+#
+# NOTE: Fedora 42 ships gdb 17.1, same upstream version as gdb-for-pwndbg
+# (17.1.0.post2). This removes version-skew as a confounder — the
+# remaining differences are compiler (zig-cc vs gcc), glibc pin
+# (2.28 vs modern Fedora), and build flags. A clean system-gdb run
+# therefore points directly at the zig-cc build environment.
+
 jobs:
+  # Leg 1: current state. 200 runs on gdb-for-pwndbg (zig-cc build).
+  # This reproduces the flake we already know about and gives us a
+  # concurrent-with-leg-2 baseline so the comparison is apples-to-apples.
+  baseline_gdb_for_pwndbg:
+    name: "baseline gdb-for-pwndbg mallocng (run ${{ matrix.run }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: pwndbg/pwndbg
+          ref: 1641c8cb3b614be7035d41abe3d60542933e4a3e
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        run: |
+          docker buildx build --load \
+            --cache-from type=registry,ref=ghcr.io/pwndbg/cache:fedora42-amd64 \
+            -f Dockerfile.dnf \
+            --build-arg image=fedora@sha256:b3d16134560afa00d7cc2a9e4967eb5b954512805f3fe27d8e70bbed078e22ea \
+            -t ghcr.io/pwndbg/pwndbg:fedora42 .
+      - name: Run mallocng under stock gdb-for-pwndbg
+        run: |
+          docker compose run -T --rm --pull never -v $(pwd):/pwndbg fedora42 bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+
+            # Confirm we are on the gdb-for-pwndbg build. This is the
+            # baseline — do NOT uninstall.
+            if ! /venv/bin/python -c "import gdb_for_pwndbg" 2>/dev/null; then
+              echo "[BASELINE] FATAL: gdb_for_pwndbg not importable — image wrong?"
+              exit 1
+            fi
+            echo "[BASELINE] gdb_for_pwndbg is present (launcher will use it)"
+
+            if [ -z "${DEBUGINFOD_URLS:-}" ]; then
+              export DEBUGINFOD_URLS="$(cat /etc/debuginfod/*.urls 2>/dev/null | tr "\n" " " || echo "")"
+            fi
+            echo "[BASELINE] DEBUGINFOD_URLS=$DEBUGINFOD_URLS"
+
+            set +e
+            ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
+            set -e
+
+            if [ $ec -eq 0 ]; then
+              echo "[BASELINE] === TEST RESULT: PASS ==="
+            else
+              echo "[BASELINE] === TEST RESULT: FAIL ==="
+              sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[BASELINE] /"
+              echo "[BASELINE] --- last 80 lines of output ---"
+              tail -80 /tmp/out.log | sed "s/^/[BASELINE] /"
+            fi
+            exit $ec
+          '
+
+  # Leg 2: experiment. 200 runs on Fedora /usr/bin/gdb (regular gcc build).
   system_gdb:
     name: "mallocng on system gdb (run ${{ matrix.run }})"
     strategy:
@@ -56,8 +131,14 @@ jobs:
             set -euo pipefail
             make -C /pwndbg/tests/binaries/host -j4 all
 
-            # Confirm system gdb is present. The Dockerfile.dnf image
-            # ships gdb; dnf install is a no-op safety net.
+            # Dockerfile.dnf pins the venv at /venv.
+            VENV=/venv
+            if [ ! -x "$VENV/bin/python" ]; then
+              echo "[SYS_GDB] FATAL: no python at $VENV/bin/python"
+              ls -la "$VENV/bin" || true
+              exit 1
+            fi
+
             if ! command -v /usr/bin/gdb >/dev/null; then
               dnf install -y gdb
             fi
@@ -65,56 +146,70 @@ jobs:
             echo "[SYS_GDB] system gdb: $SYS_GDB"
             "$SYS_GDB" --version | head -1 | sed "s/^/[SYS_GDB]   /"
 
-            # Uninstall gdb-for-pwndbg from the venv. After this, the
-            # pwndbg launcher script falls through to the ImportError
-            # branch and execs system gdb with pwndbg.gdbinit preloaded.
-            # We use the venvs pip directly (not uv) so uv does not try
-            # to resync the project on the next run.
-            /pwndbg/.venv/bin/python -m pip uninstall -y gdb-for-pwndbg \
+            # Uninstall gdb-for-pwndbg from the venv. Use pip directly
+            # so we do not touch uv.lock.
+            "$VENV/bin/python" -m pip uninstall -y gdb-for-pwndbg 2>&1 \
               | sed "s/^/[SYS_GDB]   /"
 
-            # Verify gdb-for-pwndbg is actually gone.
-            if /pwndbg/.venv/bin/python -c "import gdb_for_pwndbg" 2>/dev/null; then
+            if "$VENV/bin/python" -c "import gdb_for_pwndbg" 2>/dev/null; then
               echo "[SYS_GDB] FATAL: gdb_for_pwndbg still importable after uninstall"
               exit 1
             fi
-            echo "[SYS_GDB] gdb_for_pwndbg import fails as expected (fallback will use system gdb)"
+            echo "[SYS_GDB] gdb_for_pwndbg import fails (launcher will fall back to system gdb)"
 
-            # Python version of the venv must match the python system
-            # gdb was linked against, otherwise pwndbg_gdb.py aborts.
-            VENV_PY_VER=$(/pwndbg/.venv/bin/python -c "import sysconfig; print(sysconfig.get_config_var(\"VERSION\"))")
-            SYS_GDB_PY_VER=$("$SYS_GDB" -nx --batch -iex "py import sysconfig; print(sysconfig.get_config_var(\"VERSION\"))" 2>/dev/null | tail -1)
-            echo "[SYS_GDB] venv python: $VENV_PY_VER, system gdb python: $SYS_GDB_PY_VER"
-            if [ "$VENV_PY_VER" != "$SYS_GDB_PY_VER" ]; then
-              echo "[SYS_GDB] WARNING: python versions differ; launcher may reject this combo"
+            # Tuple check matching pwndbginit/pwndbg_gdb.py:88 exactly.
+            # If these do not match, the real launcher aborts with a
+            # loud error on every single test -> 200 identical failures
+            # tell us nothing. Catch it here and fail the whole step
+            # early so we know to fix the Python pairing.
+            read VENV_INST VENV_VER < <(
+              "$VENV/bin/python" -c "import sysconfig; print(sysconfig.get_config_var(\"INSTSONAME\"), sysconfig.get_config_var(\"VERSION\"))"
+            )
+            read GDB_INST GDB_VER < <(
+              "$SYS_GDB" -nx --batch -iex "py import sysconfig; print(sysconfig.get_config_var(\"INSTSONAME\"), sysconfig.get_config_var(\"VERSION\"))" 2>/dev/null | tail -1
+            )
+            echo "[SYS_GDB] venv  python: ($VENV_INST, $VENV_VER)"
+            echo "[SYS_GDB] sysgdb python: ($GDB_INST, $GDB_VER)"
+            if [ "$VENV_INST" != "$GDB_INST" ] || [ "$VENV_VER" != "$GDB_VER" ]; then
+              echo "[SYS_GDB] FATAL: Python (INSTSONAME, VERSION) tuple mismatch."
+              echo "[SYS_GDB] pwndbg_gdb.py would reject this pairing and never run the tests."
+              exit 1
             fi
 
-            # Confirm the pwndbg launcher picks up system gdb now.
             which pwndbg | sed "s/^/[SYS_GDB]   launcher: /"
             pwndbg --batch -iex "py print(\"loaded under system gdb\")" \
                 --eval-command "quit" 2>&1 | tail -5 | sed "s/^/[SYS_GDB]   /"
 
-            # Export DEBUGINFOD_URLS so the debuginfod path is LIVE
-            # (we want to exercise it the same way the regular CI does).
             if [ -z "${DEBUGINFOD_URLS:-}" ]; then
               export DEBUGINFOD_URLS="$(cat /etc/debuginfod/*.urls 2>/dev/null | tr "\n" " " || echo "")"
             fi
             echo "[SYS_GDB] DEBUGINFOD_URLS=$DEBUGINFOD_URLS"
 
-            # Now run mallocng. tests.sh -> python -m tests.tests ->
-            # shutil.which("pwndbg") -> the launcher -> system gdb.
+            # CRITICAL: bypass uv. tests.sh -> $UV_RUN_TEST python -m tests.tests,
+            # and $UV_RUN_TEST expands to "uv run --group dev --group tests --all-extras".
+            # uv run performs an implicit uv sync against pyproject.toml + uv.lock
+            # on every invocation; since pyproject.toml still lists gdb-for-pwndbg
+            # in the gdb extra and --all-extras pulls it in, uv would silently
+            # RE-INSTALL gdb-for-pwndbg here, defeating the whole experiment.
+            # PWNDBG_NO_UV=1 forces tests.sh to skip uv entirely.
+            export PWNDBG_NO_UV=1
+
             set +e
             ./tests.sh -d gdb -g dbg mallocng > /tmp/out.log 2>&1 & wait $!; ec=$?
             set -e
+
+            if "$VENV/bin/python" -c "import gdb_for_pwndbg" 2>/dev/null; then
+              echo "[SYS_GDB] FATAL: gdb_for_pwndbg was REINSTALLED during the test run."
+              echo "[SYS_GDB] The result does not reflect system gdb; invalidating."
+              exit 1
+            fi
 
             if [ $ec -eq 0 ]; then
               echo "[SYS_GDB] === TEST RESULT: PASS ==="
             else
               echo "[SYS_GDB] === TEST RESULT: FAIL ==="
-              # Full failure tail so we can see whether its a Zig panic
-              # (wont happen on system gdb) or a regular DWARF/abort.
               sed -n "/^\*\*\*/,\$p" /tmp/out.log | sed "s/^/[SYS_GDB] /"
-              echo "[SYS_GDB] --- last 80 lines of stderr ---"
+              echo "[SYS_GDB] --- last 80 lines of output ---"
               tail -80 /tmp/out.log | sed "s/^/[SYS_GDB] /"
             fi
             exit $ec
