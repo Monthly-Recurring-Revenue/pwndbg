@@ -48,9 +48,12 @@ jobs:
           path: debuginfod-zig
 
       - name: Install Zig (pinned)
+        # debuginfod-zig/build.zig.zon requires minimum_zig_version 0.16.0.
+        # The download URL format is zig-<arch>-<os>-<ver>.tar.xz (NOT
+        # zig-<os>-<arch>-<ver>, which was pre-0.14 and 404s today).
         run: |
-          ZIG_VERSION=0.15.1
-          curl -fsSLo /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
+          ZIG_VERSION=0.16.0
+          curl -fsSLo /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
           sudo mkdir -p /opt/zig
           sudo tar -C /opt/zig --strip-components=1 -xf /tmp/zig.tar.xz
           echo "/opt/zig" >> "$GITHUB_PATH"
