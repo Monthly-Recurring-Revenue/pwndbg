@@ -83,6 +83,23 @@ jobs:
             fi
             echo "[BASELINE] gdb_for_pwndbg is present (launcher will use it)"
 
+            # CRITICAL: the mallocng tests currently call
+            # ctrl.disable_debuginfod() at every test entry point — thats
+            # the workaround for the Fedora flake. If we leave it in, the
+            # tests dodge the flaky code path and ALL 200 runs pass,
+            # telling us nothing. Sed it out so debuginfod stays live
+            # during the test execution.
+            TESTFILE=/pwndbg/tests/library/dbg/tests/test_mallocng.py
+            COUNT_BEFORE=$(grep -c "disable_debuginfod" "$TESTFILE" || true)
+            sed -i "s/^\(\s*\)await ctrl.disable_debuginfod()/\1# PATCHED OUT for this workflow/" "$TESTFILE"
+            COUNT_AFTER=$(grep -c "^\s*await ctrl.disable_debuginfod()" "$TESTFILE" || true)
+            echo "[BASELINE] patched disable_debuginfod: $COUNT_BEFORE -> $COUNT_AFTER remaining"
+            if [ "$COUNT_AFTER" != "0" ]; then
+              echo "[BASELINE] FATAL: some disable_debuginfod calls survived sed"
+              grep -n "disable_debuginfod" "$TESTFILE" | sed "s/^/[BASELINE]   /"
+              exit 1
+            fi
+
             if [ -z "${DEBUGINFOD_URLS:-}" ]; then
               export DEBUGINFOD_URLS="$(cat /etc/debuginfod/*.urls 2>/dev/null | tr "\n" " " || echo "")"
             fi
@@ -176,9 +193,25 @@ jobs:
               exit 1
             fi
 
-            which pwndbg | sed "s/^/[SYS_GDB]   launcher: /"
+            # command -v instead of which (Fedora minimal has no which(1))
+            PWNDBG_LAUNCHER=$(command -v pwndbg || true)
+            echo "[SYS_GDB]   launcher: $PWNDBG_LAUNCHER"
             pwndbg --batch -iex "py print(\"loaded under system gdb\")" \
                 --eval-command "quit" 2>&1 | tail -5 | sed "s/^/[SYS_GDB]   /"
+
+            # Same patch as the baseline leg: remove the
+            # ctrl.disable_debuginfod() workaround so debuginfod is live
+            # during the test run. See baseline leg for rationale.
+            TESTFILE=/pwndbg/tests/library/dbg/tests/test_mallocng.py
+            COUNT_BEFORE=$(grep -c "disable_debuginfod" "$TESTFILE" || true)
+            sed -i "s/^\(\s*\)await ctrl.disable_debuginfod()/\1# PATCHED OUT for this workflow/" "$TESTFILE"
+            COUNT_AFTER=$(grep -c "^\s*await ctrl.disable_debuginfod()" "$TESTFILE" || true)
+            echo "[SYS_GDB] patched disable_debuginfod: $COUNT_BEFORE -> $COUNT_AFTER remaining"
+            if [ "$COUNT_AFTER" != "0" ]; then
+              echo "[SYS_GDB] FATAL: some disable_debuginfod calls survived sed"
+              grep -n "disable_debuginfod" "$TESTFILE" | sed "s/^/[SYS_GDB]   /"
+              exit 1
+            fi
 
             if [ -z "${DEBUGINFOD_URLS:-}" ]; then
               export DEBUGINFOD_URLS="$(cat /etc/debuginfod/*.urls 2>/dev/null | tr "\n" " " || echo "")"
