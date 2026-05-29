@@ -67,12 +67,53 @@ ifeq ($(HAVE_MUSL),yes)
 ALL_MUSL_TARGETS += heap_musl_dyn.native.out heap_musl_static.native.out heap_musl_static_stripped.native.out
 endif
 
+# --- Glibc multi-version heap test binaries ---
+# Build each binary in GLIBC_HEAP_BINARIES against every glibc version that has
+# artifacts in glibcs/<ver>/ (downloaded by scripts/download-test-glibcs.sh).
+# To target a new binary: add its base name (foo -> foo.native.c) to
+# GLIBC_HEAP_BINARIES. Which versions a test exercises is chosen test-side
+# via @pytest.mark.parametrize.
+# NOTE: keep GLIBC_TEST_VERSIONS in sync with Dockerfile.glibc-test-libs,
+# scripts/download-test-glibcs.sh (EXPECTED_VERSIONS), and
+# tests/library/dbg/tests/test_heap_glibc_versions.py (GLIBC_VERSIONS).
+GLIBC_TEST_VERSIONS := 2.35 2.36 2.37 2.38 2.39 2.40 2.41 2.42 2.43
+GLIBC_HEAP_BINARIES := heap_malloc_chunk heap_bins
+
+# Only versions whose artifacts are actually present on disk get built.
+AVAILABLE_GLIBC_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
+    $(if $(wildcard $(PWD)/glibcs/$(ver)/ld-linux-x86-64.so.2),$(ver)))
+
+# One build rule per (binary, version). x86-64 only.
+# $(1) = binary base name, $(2) = glibc version
+ifeq ($(HOST_ARCH),x86-64)
+define GLIBC_HEAP_TARGET
+$(1).glibc-$(2).out: $(1).native.c
+	@echo "[+] Building '$$@' against glibc $(2)"
+	$${ZIGCC} $${CFLAGS} -w \
+	-target x86_64-linux-gnu.$(2) \
+	-Wl,-rpath=$$(PWD)/glibcs/$(2) \
+	-Wl,--dynamic-linker=$$(PWD)/glibcs/$(2)/ld-linux-x86-64.so.2 \
+	-o $$@ $$< -pthread -lpthread
+endef
+
+$(foreach bin,$(GLIBC_HEAP_BINARIES),\
+    $(foreach ver,$(AVAILABLE_GLIBC_VERSIONS),\
+        $(eval $(call GLIBC_HEAP_TARGET,$(bin),$(ver)))))
+
+ALL_GLIBC_VERSION_TARGETS := $(foreach bin,$(GLIBC_HEAP_BINARIES),\
+    $(foreach ver,$(AVAILABLE_GLIBC_VERSIONS),$(bin).glibc-$(ver).out))
+else
+ALL_GLIBC_VERSION_TARGETS :=
+endif
+# --- End glibc multi-version targets ---
+
 CUSTOM_TARGETS = heap_find_fake_fast.native.out reference_bin_pie.native.out reference_bin_nopie.native.out reference_bin_nopie.i386.out symbol_1600_and_752.native.out initialized_heap.x86-64.out initialized_heap_big.i386.out linked_lists.native.out onegadget.x86-64.out onegadget.i386.out heap_musl_dyn.native.out heap_musl_static.native.out heap_musl_static_stripped.native.out gosample.i386.out gosample.x86-64.out
 NATIVE_CUSTOM_TARGETS  := $(filter %.native.out %.$(HOST_ARCH).out %.$(HOST_ARCH_32).out,$(CUSTOM_TARGETS))
 
 ALL_TARGETS := $(LINKED_C) $(LINKED_ASM) $(LINKED_GO) $(NATIVE_CUSTOM_TARGETS) \
     $(ALL_JEMALLOC_TARGETS) \
-    $(ALL_MUSL_TARGETS)
+    $(ALL_MUSL_TARGETS) \
+    $(ALL_GLIBC_VERSION_TARGETS)
 
 all: $(ALL_TARGETS)
 

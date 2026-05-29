@@ -1,0 +1,161 @@
+name: Heap Libc Version Tests
+
+# Tests pwndbg heap commands against multiple glibc versions.
+# The pre-built glibc artifacts live in a ghcr image (glibc-test-libs). CI pulls
+# that image instead of compiling, and only rebuilds it when the image-defining
+# files change. The image is (re)published on push to the default branch.
+
+on:
+  workflow_dispatch:
+  push:
+    # TODO(upstream): change `libc` -> `dev` before merging to pwndbg/pwndbg.
+    branches: [libc]
+    paths:
+      - 'pwndbg/aglib/heap/**'
+      - 'pwndbg/libc/**'
+      - 'tests/library/dbg/tests/test_heap*'
+      - 'tests/library/dbg/tests/test_vis_heap*'
+      - 'tests/library/dbg/tests/test_find_fake*'
+      - 'tests/library/dbg/tests/test_try_free*'
+      - 'tests/binaries/host/makefile'
+      - 'Dockerfile.glibc-test-libs'
+      - 'scripts/build-one-glibc.sh'
+  pull_request:
+    paths:
+      - 'pwndbg/aglib/heap/**'
+      - 'pwndbg/libc/**'
+      - 'tests/library/dbg/tests/test_heap*'
+      - 'tests/library/dbg/tests/test_vis_heap*'
+      - 'tests/library/dbg/tests/test_find_fake*'
+      - 'tests/library/dbg/tests/test_try_free*'
+      - 'tests/binaries/host/makefile'
+      - 'Dockerfile.glibc-test-libs'
+      - 'scripts/build-one-glibc.sh'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  heap-glibc-versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      # Resolve the (lowercased!) image name and decide build/pull/publish.
+      #   - publish: build + push to ghcr   (push / dispatch on the publish branch)
+      #   - build:   build locally, no push (PR touching image-defining files, or
+      #              a dispatch from a non-publish branch)
+      #   - pull:    pull the prebuilt image (any other PR)
+      - name: Resolve image and mode
+        id: mode
+        run: |
+          set -euo pipefail
+          # ghcr repository names MUST be lowercase; github.repository_owner keeps
+          # GitHub's canonical casing (e.g. Monthly-Recurring-Revenue), so lowercase
+          # it here. This GLIBC_IMAGE env is then available to all later steps.
+          echo "GLIBC_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/glibc-test-libs" >> "$GITHUB_ENV"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            if git diff --name-only \
+                 "origin/${{ github.base_ref }}...${{ github.event.pull_request.head.sha }}" \
+                 | grep -qE '^(Dockerfile\.glibc-test-libs|scripts/build-one-glibc\.sh)$'; then
+              mode=build
+            else
+              mode=pull
+            fi
+          # TODO(upstream): change refs/heads/libc -> refs/heads/dev before merging.
+          elif [ "${{ github.ref }}" = "refs/heads/libc" ]; then
+            mode=publish
+          else
+            mode=build
+          fi
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "Selected mode: ${mode}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to GHCR
+        if: steps.mode.outputs.mode == 'publish'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build the multi-stage glibc image and load it into the local docker.
+      # On publish, also write the build-layer cache to the registry.
+      - name: Build glibc image
+        if: steps.mode.outputs.mode != 'pull'
+        run: |
+          set -euo pipefail
+          cache_to=""
+          if [ "${{ steps.mode.outputs.mode }}" = "publish" ]; then
+            cache_to="--cache-to type=registry,ref=${GLIBC_IMAGE}:buildcache,mode=max"
+          fi
+          docker buildx build -f Dockerfile.glibc-test-libs \
+            --cache-from type=registry,ref=${GLIBC_IMAGE}:buildcache \
+            ${cache_to} \
+            -t "${GLIBC_IMAGE}:latest" --load .
+
+      - name: Push glibc image
+        if: steps.mode.outputs.mode == 'publish'
+        run: docker push "${GLIBC_IMAGE}:latest"
+
+      # Pull the prebuilt image; fall back to a local build if it isn't published
+      # yet or the package isn't public.
+      - name: Pull glibc image
+        if: steps.mode.outputs.mode == 'pull'
+        run: |
+          set -euo pipefail
+          if ! docker pull "${GLIBC_IMAGE}:latest"; then
+            echo "::warning::${GLIBC_IMAGE}:latest not found (is the package public?); building locally"
+            docker buildx build -f Dockerfile.glibc-test-libs \
+              -t "${GLIBC_IMAGE}:latest" --load .
+          fi
+
+      # scratch image has no entrypoint, so give `docker create` one so it succeeds.
+      - name: Extract glibc artifacts
+        run: |
+          set -euo pipefail
+          CID=$(docker create --entrypoint=/ "${GLIBC_IMAGE}:latest")
+          trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p tests/binaries/host/glibcs
+          docker cp "${CID}:/glibcs/." tests/binaries/host/glibcs/
+          echo "Extracted glibc artifacts:"
+          ls tests/binaries/host/glibcs/
+
+      - name: Verify glibc artifacts
+        run: |
+          set -euo pipefail
+          for dir in tests/binaries/host/glibcs/*/; do
+            ver=$(basename "$dir")
+            if [ ! -f "$dir/libc.so.6" ] || [ ! -f "$dir/ld-linux-x86-64.so.2" ]; then
+              echo "ERROR: Missing artifacts in $ver"
+              ls -la "$dir"
+              exit 1
+            fi
+          done
+          echo "All glibc artifacts verified."
+
+      - name: Run heap version tests
+        run: |
+          docker compose run -T --rm --quiet-pull -v "$(pwd):/pwndbg" ubuntu24.04 bash -c '
+            set -euo pipefail
+
+            # Build glibc-version-specific test binaries
+            make -C /pwndbg/tests/binaries/host -j4 all
+
+            # Run only the glibc version tests
+            echo "Running glibc multi-version heap tests..."
+            ./tests.sh -d gdb -g dbg test_heap_glibc_versions
+          '
