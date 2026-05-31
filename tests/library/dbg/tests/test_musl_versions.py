@@ -68,6 +68,26 @@ async def test_musl_version_detection(ctrl: Controller, musl_ver: str, linkage: 
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("musl version tests are x86-64 only")
 
+    # --- TEMP DIAGNOSTIC: why does dynamic musl detect as UNKNOWN? (remove after) ---
+    import pwndbg.aglib.symbol
+    import pwndbg.libc.facade as _facade
+    import pwndbg.libc.util as _util
+
+    _shared = await ctrl.execute_and_capture("info sharedlibrary")
+    print(f"\n[DIAG {musl_ver}-{linkage}] info sharedlibrary:\n{_shared}")
+    try:
+        _lp, _ld = str(_facade.filepath()), str(_facade.loader_filepath())
+    except Exception as exc:  # noqa: BLE001
+        _lp = _ld = f"<error: {exc}>"
+    print(f"[DIAG {musl_ver}-{linkage}] facade.filepath={_lp}  loader={_ld}")
+    for _p in {_lp, _ld}:
+        if _p.startswith("<"):
+            continue
+        _exp = _util.has_exported_symbols(_p)
+        _fa = pwndbg.aglib.symbol.lookup_symbol("__freadahead", objfile_endswith=_p)
+        print(f"[DIAG {musl_ver}-{linkage}] {_p}: has_exported={_exp} __freadahead={_fa}")
+    # --- END TEMP DIAGNOSTIC ---
+
     assert pwndbg.libc.which() == pwndbg.libc.LibcType.MUSL
     assert pwndbg.libc.version() == musl_ver_tuple(musl_ver), (
         f"expected musl {musl_ver_tuple(musl_ver)}, detected {pwndbg.libc.version()}"
