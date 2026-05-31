@@ -66,10 +66,11 @@ cp -a "${INSTALL_DIR}/lib/"crt1.o "${INSTALL_DIR}/lib/"Scrt1.o \
       "${INSTALL_DIR}/lib/"crti.o "${INSTALL_DIR}/lib/"crtn.o "${OUT_DIR}/lib/"
 cp -a "${INSTALL_DIR}/include/." "${OUT_DIR}/include/"
 
-# Verify the internal version symbol survived -- pwndbg's version() reads it, and a
-# silently-stripped build would degrade every version row to (-1, -1). Fail loud.
-if ! nm "${OUT_DIR}/lib/libc.so" 2>/dev/null | grep -q "__libc_version"; then
-    echo "FATAL: __libc_version not present in libc.so for musl ${VERSION}"
+# Static test binaries pull __libc_version from libc.a via -Wl,-u, and that's what
+# pwndbg's version() reads. Verify it's in the archive (the installed libc.so is
+# stripped, but libc.a's version.o is not). Fail loud if missing.
+if ! nm "${OUT_DIR}/lib/libc.a" | grep -q "__libc_version"; then
+    echo "FATAL: __libc_version not present in libc.a for musl ${VERSION}"
     echo "       (version detection would break). Aborting."
     exit 1
 fi
