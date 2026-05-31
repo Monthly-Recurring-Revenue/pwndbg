@@ -24,9 +24,25 @@ RUN chmod +x /build-one-musl.sh
 # build-<ver> stages, so add/remove a version here only.
 # Each RUN produces /musls/<version>/ with the artifacts.
 
+FROM base-builder AS build-1.2.1
+RUN /build-one-musl.sh 1.2.1
+
+FROM base-builder AS build-1.2.3
+RUN /build-one-musl.sh 1.2.3
+
+FROM base-builder AS build-1.2.4
+RUN /build-one-musl.sh 1.2.4
+
 FROM base-builder AS build-1.2.5
 RUN /build-one-musl.sh 1.2.5
 
+FROM base-builder AS build-1.2.6
+RUN /build-one-musl.sh 1.2.6
+
 # Final minimal image with just the artifacts
 FROM scratch
+COPY --from=build-1.2.1 /musls/1.2.1 /musls/1.2.1
+COPY --from=build-1.2.3 /musls/1.2.3 /musls/1.2.3
+COPY --from=build-1.2.4 /musls/1.2.4 /musls/1.2.4
 COPY --from=build-1.2.5 /musls/1.2.5 /musls/1.2.5
+COPY --from=build-1.2.6 /musls/1.2.6 /musls/1.2.6
