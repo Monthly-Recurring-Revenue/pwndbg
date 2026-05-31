@@ -1,10 +1,11 @@
 """
 Tests pwndbg's musl detection against multiple musl versions.
 
-Uses test binaries statically linked against pre-built musl libcs (produced by
-Dockerfile.musl-test-libs and extracted into tests/binaries/host/musls/). The musl provider
-(pwndbg/libc/musl.py) already exists; these tests feed it per-version binaries and
-assert it detects the right version -- something the existing musl tests do not do.
+Uses test binaries linked against pre-built musl libcs (produced by
+Dockerfile.musl-test-libs and extracted into tests/binaries/host/musls/), both
+statically and dynamically. The musl provider (pwndbg/libc/musl.py) already
+exists; these tests feed it per-version binaries and assert it detects the right
+version -- something the existing musl tests do not do.
 """
 
 from __future__ import annotations
@@ -25,19 +26,38 @@ _DOCKERFILE = pathlib.Path(__file__).resolve().parents[4] / "Dockerfile.musl-tes
 MUSL_VERSIONS = re.findall(r"(?m)^FROM base-builder AS build-([0-9.]+)", _DOCKERFILE.read_text())
 assert MUSL_VERSIONS, f"no musl versions parsed from {_DOCKERFILE}"
 
+# mallocng replaced musl's old allocator in 1.2.1. A statically-linked binary is
+# only fingerprintable as musl via the mallocng signature, so older versions are
+# exercised dynamically only (where the exported __freadahead drives detection).
+_MALLOCNG_MIN = (1, 2, 1)
+
 
 def musl_ver_tuple(ver: str) -> tuple[int, ...]:
     return tuple(int(p) for p in ver.split("."))
 
 
-@pytest.mark.parametrize("musl_ver", MUSL_VERSIONS)
+def _version_linkages() -> list[tuple[str, str]]:
+    combos: list[tuple[str, str]] = []
+    for ver in MUSL_VERSIONS:
+        combos.append((ver, "dynamic"))
+        if musl_ver_tuple(ver) >= _MALLOCNG_MIN:
+            combos.append((ver, "static"))
+    return combos
+
+
+_COMBOS = _version_linkages()
+
+
+@pytest.mark.parametrize(
+    "musl_ver,linkage", _COMBOS, ids=[f"{ver}-{linkage}" for ver, linkage in _COMBOS]
+)
 @pwndbg_test
-async def test_musl_version_detection(ctrl: Controller, musl_ver: str) -> None:
-    """pwndbg detects musl and resolves the exact version from a binary statically
-    linked against that musl version."""
-    binary = get_binary(f"heap_musl.musl-{musl_ver}-static.out")
+async def test_musl_version_detection(ctrl: Controller, musl_ver: str, linkage: str) -> None:
+    """pwndbg detects musl and resolves the exact version from a binary linked
+    against that musl version."""
+    binary = get_binary(f"heap_musl.musl-{musl_ver}-{linkage}.out")
     if not binary.exists():
-        pytest.skip(f"musl {musl_ver} test binary not available")
+        pytest.skip(f"musl {musl_ver} ({linkage}) test binary not available")
 
     import pwndbg.aglib
     import pwndbg.libc

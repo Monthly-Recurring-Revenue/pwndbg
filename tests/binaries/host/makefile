@@ -108,7 +108,7 @@ ALL_GLIBC_VERSION_TARGETS :=
 endif
 # --- End glibc multi-version targets ---
 
-# --- Musl multi-version heap test binaries (static) ---
+# --- Musl multi-version heap test binaries (static + dynamic) ---
 # Versions parsed from Dockerfile.musl-test-libs (its build-<ver> stages).
 MUSL_TEST_VERSIONS := $(shell sed -n 's/^FROM base-builder AS build-\([0-9][0-9.]*\).*/\1/p' $(PWD)/../../../Dockerfile.musl-test-libs)
 MUSL_HEAP_BINARIES := heap_musl
@@ -117,13 +117,23 @@ MUSL_HEAP_BINARIES := heap_musl
 AVAILABLE_MUSL_VERSIONS := $(foreach ver,$(MUSL_TEST_VERSIONS),\
     $(if $(wildcard $(PWD)/musls/$(ver)/lib/libc.a),$(ver)))
 
+# Static detection relies on the mallocng allocator signature, which musl gained
+# in 1.2.1; older versions are fingerprintable only when dynamically linked
+# (mirrors _MALLOCNG_MIN in test_musl_versions.py). So the static binary is built
+# only for >= 1.2.1, while the dynamic one is built for every available version.
+MUSL_MALLOCNG_MIN := 1.2.1
+MUSL_STATIC_VERSIONS := $(shell printf '%s\n' $(AVAILABLE_MUSL_VERSIONS) | \
+    awk -F. -v min="$(MUSL_MALLOCNG_MIN)" 'BEGIN{split(min,m,".")} \
+    ($$1>m[1])||($$1==m[1]&&$$2>m[2])||($$1==m[1]&&$$2==m[2]&&$$3>=m[3])')
+
 ifeq ($(HOST_ARCH),x86-64)
 ifeq ($(strip $(MUSL_TEST_VERSIONS)),)
 $(error Could not parse musl versions from Dockerfile.musl-test-libs - expected 'FROM base-builder AS build-<ver>' stages)
 endif
-# Static link against the version's libc.a. zig cc is the driver only (it can't
-# pick a musl version); -Wl,-u,__libc_version forces the otherwise-unreferenced
-# version symbol in so pwndbg's version() can read it.
+# zig cc is the driver only (it can't pick a musl version), so we link explicitly
+# against the version's own crt objects + libc, with its headers via -isystem.
+# Static: force in the otherwise-unreferenced __libc_version with -Wl,-u so
+# pwndbg's version() can read it straight from the binary.
 define MUSL_HEAP_STATIC_TARGET
 $(1).musl-$(2)-static.out: $(1).native.c
 	@echo "[+] Building '$$@' against musl $(2) (static)"
@@ -136,12 +146,31 @@ $(1).musl-$(2)-static.out: $(1).native.c
 	$$(PWD)/musls/$(2)/lib/libc.a $$(PWD)/musls/$(2)/lib/crtn.o
 endef
 
+# Dynamic: link against the version's libc.so and bake its loader in as the
+# interpreter (plus -rpath) so the binary loads that exact musl at runtime.
+define MUSL_HEAP_DYNAMIC_TARGET
+$(1).musl-$(2)-dynamic.out: $(1).native.c
+	@echo "[+] Building '$$@' against musl $(2) (dynamic)"
+	$${ZIGCC} $${CFLAGS} -no-pie -fno-pie -nostdlibinc -nostdlib \
+	-isystem $$(PWD)/musls/$(2)/include \
+	-Wl,--dynamic-linker=$$(PWD)/musls/$(2)/lib/ld-musl-x86_64.so.1 \
+	-Wl,-rpath=$$(PWD)/musls/$(2)/lib \
+	-o $$@ \
+	$$(PWD)/musls/$(2)/lib/crt1.o $$(PWD)/musls/$(2)/lib/crti.o \
+	$$< \
+	$$(PWD)/musls/$(2)/lib/libc.so $$(PWD)/musls/$(2)/lib/crtn.o
+endef
+
+$(foreach bin,$(MUSL_HEAP_BINARIES),\
+    $(foreach ver,$(MUSL_STATIC_VERSIONS),\
+        $(eval $(call MUSL_HEAP_STATIC_TARGET,$(bin),$(ver)))))
 $(foreach bin,$(MUSL_HEAP_BINARIES),\
     $(foreach ver,$(AVAILABLE_MUSL_VERSIONS),\
-        $(eval $(call MUSL_HEAP_STATIC_TARGET,$(bin),$(ver)))))
+        $(eval $(call MUSL_HEAP_DYNAMIC_TARGET,$(bin),$(ver)))))
 
 ALL_MUSL_VERSION_TARGETS := $(foreach bin,$(MUSL_HEAP_BINARIES),\
-    $(foreach ver,$(AVAILABLE_MUSL_VERSIONS),$(bin).musl-$(ver)-static.out))
+    $(foreach ver,$(MUSL_STATIC_VERSIONS),$(bin).musl-$(ver)-static.out)\
+    $(foreach ver,$(AVAILABLE_MUSL_VERSIONS),$(bin).musl-$(ver)-dynamic.out))
 else
 ALL_MUSL_VERSION_TARGETS :=
 endif
