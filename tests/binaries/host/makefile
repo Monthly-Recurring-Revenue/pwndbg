@@ -108,13 +108,53 @@ ALL_GLIBC_VERSION_TARGETS :=
 endif
 # --- End glibc multi-version targets ---
 
+# --- Musl multi-version heap test binaries (static) ---
+# Versions parsed from Dockerfile.musl-test-libs (its build-<ver> stages).
+MUSL_TEST_VERSIONS := $(shell sed -n 's/^FROM base-builder AS build-\([0-9][0-9.]*\).*/\1/p' $(PWD)/../../../Dockerfile.musl-test-libs)
+MUSL_HEAP_BINARIES := heap_musl
+
+# Only versions whose artifacts are actually present on disk get built.
+AVAILABLE_MUSL_VERSIONS := $(foreach ver,$(MUSL_TEST_VERSIONS),\
+    $(if $(wildcard $(PWD)/musls/$(ver)/lib/libc.a),$(ver)))
+
+ifeq ($(HOST_ARCH),x86-64)
+ifeq ($(strip $(MUSL_TEST_VERSIONS)),)
+$(error Could not parse musl versions from Dockerfile.musl-test-libs - expected 'FROM base-builder AS build-<ver>' stages)
+endif
+# Static link against the version's libc.a. zig cc is the driver only (it can't
+# pick a musl version); -Wl,-u,__libc_version forces the otherwise-unreferenced
+# version symbol in so pwndbg's version() can read it.
+define MUSL_HEAP_STATIC_TARGET
+$(1).musl-$(2)-static.out: $(1).native.c
+	@echo "[+] Building '$$@' against musl $(2) (static)"
+	$${ZIGCC} $${CFLAGS} -static -no-pie -fno-pie -nostdlibinc -nostdlib \
+	-isystem $$(PWD)/musls/$(2)/include \
+	-Wl,-u,__libc_version \
+	-o $$@ \
+	$$(PWD)/musls/$(2)/lib/crt1.o $$(PWD)/musls/$(2)/lib/crti.o \
+	$$< \
+	$$(PWD)/musls/$(2)/lib/libc.a $$(PWD)/musls/$(2)/lib/crtn.o
+endef
+
+$(foreach bin,$(MUSL_HEAP_BINARIES),\
+    $(foreach ver,$(AVAILABLE_MUSL_VERSIONS),\
+        $(eval $(call MUSL_HEAP_STATIC_TARGET,$(bin),$(ver)))))
+
+ALL_MUSL_VERSION_TARGETS := $(foreach bin,$(MUSL_HEAP_BINARIES),\
+    $(foreach ver,$(AVAILABLE_MUSL_VERSIONS),$(bin).musl-$(ver)-static.out))
+else
+ALL_MUSL_VERSION_TARGETS :=
+endif
+# --- End musl multi-version targets ---
+
 CUSTOM_TARGETS = heap_find_fake_fast.native.out reference_bin_pie.native.out reference_bin_nopie.native.out reference_bin_nopie.i386.out symbol_1600_and_752.native.out initialized_heap.x86-64.out initialized_heap_big.i386.out linked_lists.native.out onegadget.x86-64.out onegadget.i386.out heap_musl_dyn.native.out heap_musl_static.native.out heap_musl_static_stripped.native.out gosample.i386.out gosample.x86-64.out
 NATIVE_CUSTOM_TARGETS  := $(filter %.native.out %.$(HOST_ARCH).out %.$(HOST_ARCH_32).out,$(CUSTOM_TARGETS))
 
 ALL_TARGETS := $(LINKED_C) $(LINKED_ASM) $(LINKED_GO) $(NATIVE_CUSTOM_TARGETS) \
     $(ALL_JEMALLOC_TARGETS) \
     $(ALL_MUSL_TARGETS) \
-    $(ALL_GLIBC_VERSION_TARGETS)
+    $(ALL_GLIBC_VERSION_TARGETS) \
+    $(ALL_MUSL_VERSION_TARGETS)
 
 all: $(ALL_TARGETS)
 

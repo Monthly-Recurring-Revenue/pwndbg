@@ -20,6 +20,9 @@ on:
       - 'tests/binaries/host/makefile'
       - 'Dockerfile.glibc-test-libs'
       - 'scripts/build-one-glibc.sh'
+      - 'Dockerfile.musl-test-libs'
+      - 'scripts/build-one-musl.sh'
+      - 'tests/library/dbg/tests/test_musl*'
   pull_request:
     paths:
       - 'pwndbg/aglib/heap/**'
@@ -31,6 +34,9 @@ on:
       - 'tests/binaries/host/makefile'
       - 'Dockerfile.glibc-test-libs'
       - 'scripts/build-one-glibc.sh'
+      - 'Dockerfile.musl-test-libs'
+      - 'scripts/build-one-musl.sh'
+      - 'tests/library/dbg/tests/test_musl*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -158,4 +164,39 @@ jobs:
             # Run only the glibc version tests
             echo "Running glibc multi-version heap tests..."
             ./tests.sh -d gdb -g dbg test_heap_glibc_versions
+          '
+
+  # First-slice musl: build the image locally + test (no ghcr publish/pull yet --
+  # that mirrors glibc and lands once the build/link/detection is proven green).
+  heap-musl-versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Build musl image
+        run: docker buildx build -f Dockerfile.musl-test-libs -t musl-test-libs:local --load .
+
+      - name: Extract musl artifacts
+        run: |
+          set -euo pipefail
+          CID=$(docker create --entrypoint=/ musl-test-libs:local)
+          trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p tests/binaries/host/musls
+          docker cp "${CID}:/musls/." tests/binaries/host/musls/
+          echo "Extracted musl artifacts:"
+          ls tests/binaries/host/musls/
+
+      - name: Run musl version tests
+        run: |
+          docker compose run -T --rm --quiet-pull -v "$(pwd):/pwndbg" ubuntu24.04 bash -c '
+            set -euo pipefail
+            make -C /pwndbg/tests/binaries/host -j4 all
+            echo "Running musl multi-version tests..."
+            ./tests.sh -d gdb -g dbg test_musl_versions
           '

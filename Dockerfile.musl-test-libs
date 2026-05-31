@@ -1,0 +1,32 @@
+# Dockerfile for building musl libc shared libraries for testing pwndbg against
+# multiple musl versions. Mirrors Dockerfile.glibc-test-libs.
+#
+# Usage:
+#   docker buildx build -f Dockerfile.musl-test-libs -t ghcr.io/pwndbg/musl-test-libs:latest .
+#   docker push ghcr.io/pwndbg/musl-test-libs:latest
+#
+# The final image is a minimal scratch image containing only the musl artifacts:
+#   /musls/1.2.5/lib/{libc.a,libc.so,ld-musl-x86_64.so.1,crt*.o}  /musls/1.2.5/include/  ...
+
+FROM debian:12 AS base-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/build-one-musl.sh /build-one-musl.sh
+RUN chmod +x /build-one-musl.sh
+
+# Build each musl version in a separate stage for caching.
+# The makefile, download script, and test parse the version list from these
+# build-<ver> stages, so add/remove a version here only.
+# Each RUN produces /musls/<version>/ with the artifacts.
+
+FROM base-builder AS build-1.2.5
+RUN /build-one-musl.sh 1.2.5
+
+# Final minimal image with just the artifacts
+FROM scratch
+COPY --from=build-1.2.5 /musls/1.2.5 /musls/1.2.5
