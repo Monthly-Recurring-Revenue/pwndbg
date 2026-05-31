@@ -23,6 +23,10 @@ on:
       - 'Dockerfile.musl-test-libs'
       - 'scripts/build-one-musl.sh'
       - 'tests/library/dbg/tests/test_musl*'
+      - 'Dockerfile.bionic-test-libs'
+      - 'scripts/build-one-bionic.sh'
+      - 'tests/library/dbg/tests/test_bionic*'
+      - 'tests/binaries/host/bionic_probe.native.c'
   pull_request:
     paths:
       - 'pwndbg/aglib/heap/**'
@@ -37,6 +41,10 @@ on:
       - 'Dockerfile.musl-test-libs'
       - 'scripts/build-one-musl.sh'
       - 'tests/library/dbg/tests/test_musl*'
+      - 'Dockerfile.bionic-test-libs'
+      - 'scripts/build-one-bionic.sh'
+      - 'tests/library/dbg/tests/test_bionic*'
+      - 'tests/binaries/host/bionic_probe.native.c'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -301,4 +309,127 @@ jobs:
             make -C /pwndbg/tests/binaries/host -j4 all
             echo "Running musl multi-version tests..."
             ./tests.sh -d gdb -g dbg test_musl_versions
+          '
+
+  heap-bionic-versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      # Resolve the (lowercased!) image name and decide build/pull/publish based on
+      # whether the image-defining files changed -- same logic as the glibc/musl jobs.
+      - name: Resolve image and mode
+        id: mode
+        run: |
+          set -euo pipefail
+          # ghcr repo names must be lowercase; github.repository_owner preserves case, so lowercase it.
+          echo "BIONIC_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/bionic-test-libs" >> "$GITHUB_ENV"
+
+          # Work out a diff range to ask "did the image-defining files change?".
+          diff_range=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            diff_range="origin/${{ github.base_ref }}...${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            before="${{ github.event.before }}"
+            if [ -n "${before}" ] && [ "${before}" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              diff_range="${before}...${{ github.sha }}"
+            fi
+          fi
+
+          # Conservative: if we can't compute a diff (manual dispatch, first/force push),
+          # treat the image as changed so we never test against a stale image.
+          if [ -z "${diff_range}" ]; then
+            image_changed=yes
+          elif [ -n "$(git diff --name-only "${diff_range}" -- \
+                        Dockerfile.bionic-test-libs scripts/build-one-bionic.sh)" ]; then
+            image_changed=yes
+          else
+            image_changed=no
+          fi
+
+          if [ "${image_changed}" = no ]; then
+            mode=pull
+          # TODO(upstream): change refs/heads/libc -> refs/heads/dev before merging.
+          elif [ "${{ github.ref }}" = "refs/heads/libc" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            mode=publish
+          else
+            mode=build
+          fi
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "image_changed=${image_changed}; selected mode: ${mode}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to GHCR
+        if: steps.mode.outputs.mode == 'publish'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build bionic image
+        if: steps.mode.outputs.mode != 'pull'
+        run: |
+          set -euo pipefail
+          cache_to=""
+          if [ "${{ steps.mode.outputs.mode }}" = "publish" ]; then
+            cache_to="--cache-to type=registry,ref=${BIONIC_IMAGE}:buildcache,mode=max"
+          fi
+          docker buildx build -f Dockerfile.bionic-test-libs \
+            --cache-from type=registry,ref=${BIONIC_IMAGE}:buildcache \
+            ${cache_to} \
+            -t "${BIONIC_IMAGE}:latest" --load .
+
+      - name: Push bionic image
+        if: steps.mode.outputs.mode == 'publish'
+        run: docker push "${BIONIC_IMAGE}:latest"
+
+      - name: Pull bionic image
+        if: steps.mode.outputs.mode == 'pull'
+        run: |
+          set -euo pipefail
+          if ! docker pull "${BIONIC_IMAGE}:latest"; then
+            echo "::warning::${BIONIC_IMAGE}:latest not found (is the package public?); building locally"
+            docker buildx build -f Dockerfile.bionic-test-libs \
+              -t "${BIONIC_IMAGE}:latest" --load .
+          fi
+
+      - name: Extract bionic binaries
+        run: |
+          set -euo pipefail
+          CID=$(docker create --entrypoint=/ "${BIONIC_IMAGE}:latest")
+          trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p tests/binaries/host/bionics
+          docker cp "${CID}:/bionics/." tests/binaries/host/bionics/
+          echo "Extracted bionic binaries:"
+          ls tests/binaries/host/bionics/
+
+      - name: Verify bionic binaries
+        run: |
+          set -euo pipefail
+          for dir in tests/binaries/host/bionics/*/; do
+            api=$(basename "$dir")
+            if [ ! -f "$dir/bionic_probe.bionic-${api}-static.out" ]; then
+              echo "ERROR: Missing probe binary in API $api"
+              ls -la "$dir" || true
+              exit 1
+            fi
+          done
+          echo "All bionic binaries verified."
+
+      # No `make` step here: bionic ships pre-built binaries (the NDK clang that
+      # built them is not in the test container), so the test consumes them directly.
+      - name: Run bionic version tests
+        run: |
+          docker compose run -T --rm --quiet-pull -v "$(pwd):/pwndbg" ubuntu24.04 bash -c '
+            set -euo pipefail
+            echo "Running bionic multi-API tests..."
+            ./tests.sh -d gdb -g dbg test_bionic_versions
           '

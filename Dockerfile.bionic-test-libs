@@ -1,0 +1,65 @@
+# Dockerfile for building static Android-bionic test binaries for pwndbg, one per
+# Android API level. Mirrors Dockerfile.musl-test-libs / Dockerfile.glibc-test-libs.
+#
+# Usage:
+#   docker buildx build -f Dockerfile.bionic-test-libs -t ghcr.io/pwndbg/bionic-test-libs:latest .
+#   docker push ghcr.io/pwndbg/bionic-test-libs:latest
+#
+# KEY DIFFERENCE from the glibc/musl images: those ship libc artifacts and the
+# pwndbg test container compiles the test binaries (via the makefile + zig cc).
+# Bionic test binaries must be built with the NDK clang, which is NOT in the
+# pwndbg test container, so we pre-build the *binaries* here and ship them. The
+# test then uses the extracted pre-built binaries directly (no makefile rule).
+#
+# The final image is a minimal scratch image containing only the binaries:
+#   /bionics/21/bionic_probe.bionic-21-static.out  /bionics/26/...  ...
+
+FROM debian:12 AS base-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    unzip \
+    binutils \
+    file \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download the Android NDK once in the shared base stage so every per-API build
+# stage reuses the same cached layer (the NDK is large; downloading per-stage
+# would be wasteful). Pinned to r27d to match the bionic spike.
+ARG NDK_VERSION=r27d
+RUN curl -fsSL -o /tmp/ndk.zip \
+        "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip" \
+    && unzip -q /tmp/ndk.zip -d /opt \
+    && rm /tmp/ndk.zip
+ENV NDK_HOME=/opt/android-ndk-${NDK_VERSION}
+
+COPY scripts/build-one-bionic.sh /build-one-bionic.sh
+RUN chmod +x /build-one-bionic.sh
+COPY tests/binaries/host/bionic_probe.native.c /bionic_probe.native.c
+
+# Build each API level in a separate stage for caching.
+# The download script and test parse the API list from these build-<API> stages,
+# so add/remove an API level here only. API levels are plain integers, matched by
+# the same `sed -n 's/^FROM base-builder AS build-\([0-9][0-9.]*\).*/\1/p'`
+# pattern the musl/glibc setups use.
+# Each RUN produces /bionics/<API>/ with the static probe binary.
+
+FROM base-builder AS build-21
+RUN /build-one-bionic.sh 21
+
+FROM base-builder AS build-26
+RUN /build-one-bionic.sh 26
+
+FROM base-builder AS build-30
+RUN /build-one-bionic.sh 30
+
+FROM base-builder AS build-34
+RUN /build-one-bionic.sh 34
+
+# Final minimal image with just the binaries
+FROM scratch
+COPY --from=build-21 /bionics/21 /bionics/21
+COPY --from=build-26 /bionics/26 /bionics/26
+COPY --from=build-30 /bionics/30 /bionics/30
+COPY --from=build-34 /bionics/34 /bionics/34
