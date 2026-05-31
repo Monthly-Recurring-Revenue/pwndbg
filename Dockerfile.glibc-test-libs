@@ -40,9 +40,8 @@ RUN chmod +x /build-one-glibc.sh
 
 # Build each glibc version in a separate layer for caching.
 # Each RUN produces /glibcs/<version>/ with the artifacts.
-# NOTE: keep this version set in sync with tests/binaries/host/makefile
-# (GLIBC_TEST_VERSIONS), scripts/download-test-glibcs.sh (EXPECTED_VERSIONS),
-# and tests/library/dbg/tests/test_heap_glibc_versions.py (GLIBC_VERSIONS).
+# The makefile, download script, and test parse the version list from these
+# build-<ver> stages, so add/remove a version here only.
 
 FROM base-builder AS build-2.35
 RUN /build-one-glibc.sh 2.35

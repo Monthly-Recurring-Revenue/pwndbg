@@ -16,9 +16,12 @@ DEST="${REPO_ROOT}/tests/binaries/host/glibcs"
 # ghcr.io/pwndbg/glibc-test-libs:latest before merging to pwndbg/pwndbg.
 GLIBC_IMAGE="${GLIBC_IMAGE:-ghcr.io/monthly-recurring-revenue/glibc-test-libs:latest}"
 
-# All glibc versions we expect (keep in sync with Dockerfile.glibc-test-libs,
-# tests/binaries/host/makefile GLIBC_TEST_VERSIONS, and test_heap_glibc_versions.py)
-EXPECTED_VERSIONS=(2.35 2.36 2.37 2.38 2.39 2.40 2.41 2.42 2.43)
+# Versions parsed from Dockerfile.glibc-test-libs (its build-<ver> stages).
+mapfile -t EXPECTED_VERSIONS < <(sed -n 's/^FROM base-builder AS build-\([0-9][0-9.]*\).*/\1/p' "${REPO_ROOT}/Dockerfile.glibc-test-libs")
+if [ "${#EXPECTED_VERSIONS[@]}" -eq 0 ]; then
+    echo "ERROR: could not parse glibc versions from Dockerfile.glibc-test-libs" >&2
+    exit 1
+fi
 
 # Check if all versions are already present
 all_present=true

@@ -73,10 +73,8 @@ endif
 # To target a new binary: add its base name (foo -> foo.native.c) to
 # GLIBC_HEAP_BINARIES. Which versions a test exercises is chosen test-side
 # via @pytest.mark.parametrize.
-# NOTE: keep GLIBC_TEST_VERSIONS in sync with Dockerfile.glibc-test-libs,
-# scripts/download-test-glibcs.sh (EXPECTED_VERSIONS), and
-# tests/library/dbg/tests/test_heap_glibc_versions.py (GLIBC_VERSIONS).
-GLIBC_TEST_VERSIONS := 2.35 2.36 2.37 2.38 2.39 2.40 2.41 2.42 2.43
+# Versions parsed from Dockerfile.glibc-test-libs (its build-<ver> stages).
+GLIBC_TEST_VERSIONS := $(shell sed -n 's/^FROM base-builder AS build-\([0-9][0-9.]*\).*/\1/p' $(PWD)/../../../Dockerfile.glibc-test-libs)
 GLIBC_HEAP_BINARIES := heap_malloc_chunk heap_bins
 
 # Only versions whose artifacts are actually present on disk get built.
@@ -86,6 +84,9 @@ AVAILABLE_GLIBC_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
 # One build rule per (binary, version). x86-64 only.
 # $(1) = binary base name, $(2) = glibc version
 ifeq ($(HOST_ARCH),x86-64)
+ifeq ($(strip $(GLIBC_TEST_VERSIONS)),)
+$(error Could not parse glibc versions from Dockerfile.glibc-test-libs - expected 'FROM base-builder AS build-<ver>' stages)
+endif
 define GLIBC_HEAP_TARGET
 $(1).glibc-$(2).out: $(1).native.c
 	@echo "[+] Building '$$@' against glibc $(2)"

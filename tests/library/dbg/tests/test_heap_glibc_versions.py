@@ -10,6 +10,9 @@ version-specific struct layouts, bin types, and behaviors.
 
 from __future__ import annotations
 
+import pathlib
+import re
+
 import pytest
 
 from ....host import Controller
@@ -17,13 +20,12 @@ from . import get_binary
 from . import launch_to
 from . import pwndbg_test
 
-# All glibc versions with pre-built test artifacts. Keep this list in sync with the
-# four places the version list lives:
-#   - Dockerfile.glibc-test-libs        (one build stage + scratch COPY per version)
-#   - tests/binaries/host/makefile      (GLIBC_TEST_VERSIONS)
-#   - scripts/download-test-glibcs.sh   (EXPECTED_VERSIONS)
-#   - this GLIBC_VERSIONS list
-GLIBC_VERSIONS = ["2.35", "2.36", "2.37", "2.38", "2.39", "2.40", "2.41", "2.42", "2.43"]
+# Versions parsed from Dockerfile.glibc-test-libs so the list lives in one place.
+_DOCKERFILE = pathlib.Path(__file__).resolve().parents[4] / "Dockerfile.glibc-test-libs"
+GLIBC_VERSIONS = re.findall(
+    r"(?m)^FROM base-builder AS build-([0-9.]+)", _DOCKERFILE.read_text()
+)
+assert GLIBC_VERSIONS, f"no glibc versions parsed from {_DOCKERFILE}"
 
 
 def glibc_ver_tuple(ver: str) -> tuple[int, int]:
