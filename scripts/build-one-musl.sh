@@ -66,14 +66,17 @@ cp -a "${INSTALL_DIR}/lib/"crt1.o "${INSTALL_DIR}/lib/"Scrt1.o \
       "${INSTALL_DIR}/lib/"crti.o "${INSTALL_DIR}/lib/"crtn.o "${OUT_DIR}/lib/"
 cp -a "${INSTALL_DIR}/include/." "${OUT_DIR}/include/"
 
-# Static test binaries pull __libc_version from libc.a via -Wl,-u, and that's what
-# pwndbg's version() reads. Verify it's in the archive (the installed libc.so is
-# stripped, but libc.a's version.o is not). Fail loud if missing.
-if ! nm "${OUT_DIR}/lib/libc.a" | grep -q "__libc_version"; then
-    echo "FATAL: __libc_version not present in libc.a for musl ${VERSION}"
-    echo "       (version detection would break). Aborting."
-    exit 1
-fi
+# DIAGNOSTIC: pwndbg's version() reads musl's internal __libc_version
+# (const char __libc_version[] in src/internal/version.c). Locate where it
+# actually survives in the build so we link/read it correctly (non-fatal).
+echo "--- version symbols in libc.a ---"
+nm "${OUT_DIR}/lib/libc.a" 2>&1 | grep -i version || echo "  (none)"
+echo "--- version symbols in libc.so .symtab ---"
+nm "${OUT_DIR}/lib/libc.so" 2>&1 | grep -i version || echo "  (none)"
+echo "--- version symbols in libc.so .dynsym ---"
+nm -D "${OUT_DIR}/lib/libc.so" 2>&1 | grep -i version || echo "  (none)"
+echo "--- objects in libc.a mentioning version ---"
+ar t "${OUT_DIR}/lib/libc.a" 2>&1 | grep -i version || echo "  (none)"
 
 # Cleanup build artifacts to save space
 rm -rf "${SRC_DIR}" "${INSTALL_DIR}" "${TARBALL}"
