@@ -1,0 +1,59 @@
+name: Bionic Spike
+
+# Feasibility spike (throwaway): prove a *static* Android-bionic x86_64 binary
+# builds with the NDK and runs under gdb in a plain Linux CI container (no
+# emulator), and report what pwndbg currently detects for it. If this is green,
+# the real bionic harness (per-API ghcr image + a bionic provider's tests)
+# follows the glibc/musl pattern. If it segfaults at startup, we pivot to
+# detection-on-a-file or an emulator job.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [libc]
+    paths:
+      - '.github/workflows/bionic-spike.yml'
+      - 'tests/binaries/host/bionic_probe.native.c'
+      - 'tests/library/dbg/tests/test_bionic_spike.py'
+
+permissions:
+  contents: read
+
+env:
+  NDK_VERSION: r27d
+  BIONIC_API: "21"
+
+jobs:
+  bionic-spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download Android NDK ${{ env.NDK_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o ndk.zip \
+            "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+          unzip -q ndk.zip
+          echo "NDK_HOME=${PWD}/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Build static bionic probe (API ${{ env.BIONIC_API }})
+        run: |
+          set -euo pipefail
+          CLANG="${NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          OUT="tests/binaries/host/bionic_probe.bionic-${BIONIC_API}-static.out"
+          "${CLANG}" --target=x86_64-linux-android${BIONIC_API} -static -no-pie \
+            -g -O0 -o "${OUT}" tests/binaries/host/bionic_probe.native.c
+          echo "=== file ==="
+          file "${OUT}"
+          echo "=== .note.android.ident (bionic fingerprint + build-target API) ==="
+          readelf -n "${OUT}" | grep -iA3 android || echo "NOTE MISSING"
+
+      - name: Run bionic spike test under gdb
+        run: |
+          docker compose run -T --rm --quiet-pull -v "$(pwd):/pwndbg" ubuntu24.04 bash -c '
+            set -euo pipefail
+            echo "Running bionic spike (static binary under gdb)..."
+            ./tests.sh -d gdb -g dbg test_bionic_spike
+          '
