@@ -164,31 +164,101 @@ jobs:
             ./tests.sh -d gdb -g dbg test_heap_glibc_versions
           '
 
-  # First-slice musl: build the image locally + test (no ghcr publish/pull yet --
-  # that mirrors glibc and lands once the build/link/detection is proven green).
   heap-musl-versions:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+
+      # Resolve the (lowercased!) image name and decide build/pull/publish, same
+      # as the glibc job above.
+      - name: Resolve image and mode
+        id: mode
+        run: |
+          set -euo pipefail
+          # ghcr repo names must be lowercase; github.repository_owner preserves case, so lowercase it.
+          echo "MUSL_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/musl-test-libs" >> "$GITHUB_ENV"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            if git diff --name-only \
+                 "origin/${{ github.base_ref }}...${{ github.event.pull_request.head.sha }}" \
+                 | grep -qE '^(Dockerfile\.musl-test-libs|scripts/build-one-musl\.sh)$'; then
+              mode=build
+            else
+              mode=pull
+            fi
+          # TODO(upstream): change refs/heads/libc -> refs/heads/dev before merging.
+          elif [ "${{ github.ref }}" = "refs/heads/libc" ]; then
+            mode=publish
+          else
+            mode=build
+          fi
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "Selected mode: ${mode}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
+      - name: Log in to GHCR
+        if: steps.mode.outputs.mode == 'publish'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build musl image
-        run: docker buildx build -f Dockerfile.musl-test-libs -t musl-test-libs:local --load .
+        if: steps.mode.outputs.mode != 'pull'
+        run: |
+          set -euo pipefail
+          cache_to=""
+          if [ "${{ steps.mode.outputs.mode }}" = "publish" ]; then
+            cache_to="--cache-to type=registry,ref=${MUSL_IMAGE}:buildcache,mode=max"
+          fi
+          docker buildx build -f Dockerfile.musl-test-libs \
+            --cache-from type=registry,ref=${MUSL_IMAGE}:buildcache \
+            ${cache_to} \
+            -t "${MUSL_IMAGE}:latest" --load .
+
+      - name: Push musl image
+        if: steps.mode.outputs.mode == 'publish'
+        run: docker push "${MUSL_IMAGE}:latest"
+
+      - name: Pull musl image
+        if: steps.mode.outputs.mode == 'pull'
+        run: |
+          set -euo pipefail
+          if ! docker pull "${MUSL_IMAGE}:latest"; then
+            echo "::warning::${MUSL_IMAGE}:latest not found (is the package public?); building locally"
+            docker buildx build -f Dockerfile.musl-test-libs \
+              -t "${MUSL_IMAGE}:latest" --load .
+          fi
 
       - name: Extract musl artifacts
         run: |
           set -euo pipefail
-          CID=$(docker create --entrypoint=/ musl-test-libs:local)
+          CID=$(docker create --entrypoint=/ "${MUSL_IMAGE}:latest")
           trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
           mkdir -p tests/binaries/host/musls
           docker cp "${CID}:/musls/." tests/binaries/host/musls/
           echo "Extracted musl artifacts:"
           ls tests/binaries/host/musls/
+
+      - name: Verify musl artifacts
+        run: |
+          set -euo pipefail
+          for dir in tests/binaries/host/musls/*/; do
+            ver=$(basename "$dir")
+            if [ ! -f "$dir/lib/libc.a" ] || [ ! -f "$dir/lib/libc.so" ]; then
+              echo "ERROR: Missing artifacts in $ver"
+              ls -la "$dir/lib" || true
+              exit 1
+            fi
+          done
+          echo "All musl artifacts verified."
 
       - name: Run musl version tests
         run: |
