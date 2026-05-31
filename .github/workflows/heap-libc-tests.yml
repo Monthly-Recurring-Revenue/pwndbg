@@ -55,11 +55,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Resolve the (lowercased!) image name and decide build/pull/publish.
-      #   - publish: build + push to ghcr   (push / dispatch on the publish branch)
-      #   - build:   build locally, no push (PR touching image-defining files, or
-      #              a dispatch from a non-publish branch)
-      #   - pull:    pull the prebuilt image (any other PR)
+      # Resolve the (lowercased!) image name and decide build/pull/publish based on
+      # whether the image-defining files actually changed.
+      #   - pull:    image-defining files unchanged -> reuse the prebuilt image (fast)
+      #   - publish: image-defining files changed on the publish branch -> build + push
+      #   - build:   image-defining files changed elsewhere, or we can't tell -> build locally
       - name: Resolve image and mode
         id: mode
         run: |
@@ -67,23 +67,40 @@ jobs:
           # ghcr repo names must be lowercase; github.repository_owner preserves case, so lowercase it.
           echo "GLIBC_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/glibc-test-libs" >> "$GITHUB_ENV"
 
+          # Work out a diff range to ask "did the image-defining files change?".
+          diff_range=""
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-            if git diff --name-only \
-                 "origin/${{ github.base_ref }}...${{ github.event.pull_request.head.sha }}" \
-                 | grep -qE '^(Dockerfile\.glibc-test-libs|scripts/build-one-glibc\.sh)$'; then
-              mode=build
-            else
-              mode=pull
+            diff_range="origin/${{ github.base_ref }}...${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            before="${{ github.event.before }}"
+            if [ -n "${before}" ] && [ "${before}" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              diff_range="${before}...${{ github.sha }}"
             fi
+          fi
+
+          # Conservative: if we can't compute a diff (manual dispatch, first/force push),
+          # treat the image as changed so we never test against a stale image.
+          if [ -z "${diff_range}" ]; then
+            image_changed=yes
+          elif [ -n "$(git diff --name-only "${diff_range}" -- \
+                        Dockerfile.glibc-test-libs scripts/build-one-glibc.sh)" ]; then
+            image_changed=yes
+          else
+            image_changed=no
+          fi
+
+          if [ "${image_changed}" = no ]; then
+            mode=pull
           # TODO(upstream): change refs/heads/libc -> refs/heads/dev before merging.
-          elif [ "${{ github.ref }}" = "refs/heads/libc" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/libc" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
             mode=publish
           else
             mode=build
           fi
           echo "mode=${mode}" >> "$GITHUB_OUTPUT"
-          echo "Selected mode: ${mode}"
+          echo "image_changed=${image_changed}; selected mode: ${mode}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -172,8 +189,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Resolve the (lowercased!) image name and decide build/pull/publish, same
-      # as the glibc job above.
+      # Resolve the (lowercased!) image name and decide build/pull/publish based on
+      # whether the image-defining files changed -- same logic as the glibc job above.
       - name: Resolve image and mode
         id: mode
         run: |
@@ -181,23 +198,40 @@ jobs:
           # ghcr repo names must be lowercase; github.repository_owner preserves case, so lowercase it.
           echo "MUSL_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/musl-test-libs" >> "$GITHUB_ENV"
 
+          # Work out a diff range to ask "did the image-defining files change?".
+          diff_range=""
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-            if git diff --name-only \
-                 "origin/${{ github.base_ref }}...${{ github.event.pull_request.head.sha }}" \
-                 | grep -qE '^(Dockerfile\.musl-test-libs|scripts/build-one-musl\.sh)$'; then
-              mode=build
-            else
-              mode=pull
+            diff_range="origin/${{ github.base_ref }}...${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            before="${{ github.event.before }}"
+            if [ -n "${before}" ] && [ "${before}" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              diff_range="${before}...${{ github.sha }}"
             fi
+          fi
+
+          # Conservative: if we can't compute a diff (manual dispatch, first/force push),
+          # treat the image as changed so we never test against a stale image.
+          if [ -z "${diff_range}" ]; then
+            image_changed=yes
+          elif [ -n "$(git diff --name-only "${diff_range}" -- \
+                        Dockerfile.musl-test-libs scripts/build-one-musl.sh)" ]; then
+            image_changed=yes
+          else
+            image_changed=no
+          fi
+
+          if [ "${image_changed}" = no ]; then
+            mode=pull
           # TODO(upstream): change refs/heads/libc -> refs/heads/dev before merging.
-          elif [ "${{ github.ref }}" = "refs/heads/libc" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/libc" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
             mode=publish
           else
             mode=build
           fi
           echo "mode=${mode}" >> "$GITHUB_OUTPUT"
-          echo "Selected mode: ${mode}"
+          echo "image_changed=${image_changed}; selected mode: ${mode}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
