@@ -66,17 +66,16 @@ cp -a "${INSTALL_DIR}/lib/"crt1.o "${INSTALL_DIR}/lib/"Scrt1.o \
       "${INSTALL_DIR}/lib/"crti.o "${INSTALL_DIR}/lib/"crtn.o "${OUT_DIR}/lib/"
 cp -a "${INSTALL_DIR}/include/." "${OUT_DIR}/include/"
 
-# DIAGNOSTIC: pwndbg's version() reads musl's internal __libc_version
-# (const char __libc_version[] in src/internal/version.c). Locate where it
-# actually survives in the build so we link/read it correctly (non-fatal).
-echo "--- version symbols in libc.a ---"
-nm "${OUT_DIR}/lib/libc.a" 2>&1 | grep -i version || echo "  (none)"
-echo "--- version symbols in libc.so .symtab ---"
-nm "${OUT_DIR}/lib/libc.so" 2>&1 | grep -i version || echo "  (none)"
-echo "--- version symbols in libc.so .dynsym ---"
-nm -D "${OUT_DIR}/lib/libc.so" 2>&1 | grep -i version || echo "  (none)"
-echo "--- objects in libc.a mentioning version ---"
-ar t "${OUT_DIR}/lib/libc.a" 2>&1 | grep -i version || echo "  (none)"
+# pwndbg's version() reads musl's internal __libc_version (const char
+# __libc_version[] in src/internal/version.c); the static test binaries pull it
+# from libc.a via -Wl,-u. Fail loud if a future musl version ever drops it.
+# Capture nm's output instead of piping it, so the check can't misfire on nm's
+# exit status under `set -o pipefail`.
+symbols=$(nm "${OUT_DIR}/lib/libc.a" 2>/dev/null) || true
+case "${symbols}" in
+    *__libc_version*) ;;
+    *) echo "FATAL: __libc_version missing from libc.a for musl ${VERSION}"; exit 1 ;;
+esac
 
 # Cleanup build artifacts to save space
 rm -rf "${SRC_DIR}" "${INSTALL_DIR}" "${TARBALL}"
