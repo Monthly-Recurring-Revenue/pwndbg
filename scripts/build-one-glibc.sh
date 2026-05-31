@@ -6,12 +6,11 @@
 #
 # Output: /glibcs/<version>/ directory containing:
 #   ld-<ver>.so, ld-linux-x86-64.so.2, libc-<ver>.so, libc.so.6,
-#   .debug/libc-<ver>.so, and optionally libpthread files (glibc < 2.34)
+#   .debug/libc-<ver>.so
 
 set -euo pipefail
 
 VERSION="${1:?Usage: $0 <glibc-version>}"
-MINOR="${VERSION#*.}"
 
 SRC_DIR="/tmp/glibc-src-${VERSION}"
 BUILD_DIR="/tmp/glibc-build-${VERSION}"
@@ -73,12 +72,6 @@ make install -k DESTDIR="${INSTALL_DIR}" > /dev/null 2>&1 || true
 echo "[5/5] Packaging artifacts..."
 mkdir -p "${OUT_DIR}/.debug"
 
-# Debug: show what was installed
-echo "Installed lib contents:"
-ls -la "${INSTALL_DIR}/opt/glibc/lib/"* 2>/dev/null | head -20 || true
-echo "Installed lib64 contents (if any):"
-ls -la "${INSTALL_DIR}/opt/glibc/lib64/"* 2>/dev/null | head -10 || true
-
 # Find libc.so.6 in the install tree (may be a symlink)
 LIBC_SO=$(find "${INSTALL_DIR}" -name "libc.so.6" 2>/dev/null | head -1)
 if [ -n "${LIBC_SO}" ]; then
@@ -126,16 +119,6 @@ strip "${OUT_DIR}/libc-${VERSION}.so"
 objcopy --add-gnu-debuglink="${OUT_DIR}/.debug/libc-${VERSION}.so" "${OUT_DIR}/libc-${VERSION}.so"
 
 ln -sf "libc-${VERSION}.so" "${OUT_DIR}/libc.so.6"
-
-# For glibc < 2.34, libpthread was a separate library
-if [ "${MINOR}" -lt 34 ]; then
-    PTHREAD_SO=$(find "${INSTALL_DIR}" -name "libpthread.so.0" -o -name "libpthread-${VERSION}.so" 2>/dev/null | head -1)
-    if [ -n "${PTHREAD_SO}" ]; then
-        PTHREAD_REAL=$(readlink -f "${PTHREAD_SO}")
-        cp "${PTHREAD_REAL}" "${OUT_DIR}/libpthread-${VERSION}.so"
-        ln -sf "libpthread-${VERSION}.so" "${OUT_DIR}/libpthread.so.0"
-    fi
-fi
 
 # Cleanup build artifacts to save space
 rm -rf "${SRC_DIR}" "${BUILD_DIR}" "${INSTALL_DIR}" "${TARBALL}"

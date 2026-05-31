@@ -14,8 +14,6 @@
 #   libc-X.XX.so            (stripped libc)
 #   libc.so.6               (symlink -> libc-X.XX.so)
 #   .debug/libc-X.XX.so     (separate debug info)
-#   libpthread-X.XX.so      (only for glibc < 2.34)
-#   libpthread.so.0         (symlink, only for glibc < 2.34)
 
 # Use Debian 12 (GCC 12) - newer GCC versions (13/14) break older glibc builds
 FROM debian:12 AS base-builder

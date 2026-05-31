@@ -64,9 +64,7 @@ jobs:
         id: mode
         run: |
           set -euo pipefail
-          # ghcr repository names MUST be lowercase; github.repository_owner keeps
-          # GitHub's canonical casing (e.g. Monthly-Recurring-Revenue), so lowercase
-          # it here. This GLIBC_IMAGE env is then available to all later steps.
+          # ghcr repo names must be lowercase; github.repository_owner preserves case, so lowercase it.
           echo "GLIBC_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/glibc-test-libs" >> "$GITHUB_ENV"
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then

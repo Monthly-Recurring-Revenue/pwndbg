@@ -39,15 +39,13 @@ async def test_heap_version_detection(ctrl: Controller, glibc_ver: str) -> None:
     """Verify pwndbg correctly detects the glibc version from the loaded libc."""
     binary = get_binary(f"heap_malloc_chunk.glibc-{glibc_ver}.out")
     if not binary.exists():
-        pytest.skip(f"glibc {glibc_ver} test binary not available (run scripts/download-test-glibcs.sh)")
+        pytest.skip(f"glibc {glibc_ver} test binary not available")
 
     await launch_to(ctrl, binary, "break_here")
 
     import pwndbg.aglib
-    import pwndbg.aglib.heap
     import pwndbg.libc
 
-    # Skip non-x86-64 (glibc version binaries are x86-64 only)
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("glibc version tests are x86-64 only")
 
@@ -81,10 +79,8 @@ async def test_heap_allocator_setup(ctrl: Controller, glibc_ver: str) -> None:
     # Verify tcache availability (present since 2.26)
     assert allocator.has_tcache, f"glibc {glibc_ver} should have tcache"
 
-    # Verify main_arena is accessible
     assert allocator.main_arena is not None, f"main_arena should be found for glibc {glibc_ver}"
 
-    # Verify malloc_par is accessible
     assert allocator.mp is not None, f"mp (malloc_par) should be found for glibc {glibc_ver}"
 
 
@@ -142,21 +138,18 @@ async def test_heap_bins_glibc_version(ctrl: Controller, glibc_ver: str) -> None
         assert result.bin_type == BinType.FAST
         assert fastbin_size in result.bins
 
-    # Continue to tcache test
     await ctrl.cont()
 
     result = allocator.tcachebins()
     assert result is not None
     assert tcache_size in result.bins
 
-    # Continue to fastbin test
     await ctrl.cont()
 
     result = allocator.fastbins()
     if ver < (2, 43):
         assert result is not None
 
-    # Continue to unsortedbin test
     await ctrl.cont()
 
     result = allocator.unsortedbin()
@@ -170,14 +163,12 @@ async def test_heap_bins_glibc_version(ctrl: Controller, glibc_ver: str) -> None
     else:
         assert len(result.bins["all"].fd_chain) >= 1
 
-    # Continue to smallbin test
     await ctrl.cont()
 
     result = allocator.smallbins()
     assert result is not None
     assert result.bin_type == BinType.SMALL
 
-    # Continue to largebin test
     await ctrl.cont()
 
     result = allocator.largebins()
@@ -209,18 +200,15 @@ async def test_heap_malloc_chunk_glibc_version(ctrl: Controller, glibc_ver: str)
     allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
-    # Verify malloc_chunk type is available
     malloc_chunk = allocator.malloc_chunk
     assert malloc_chunk is not None, f"malloc_chunk type should be available for glibc {glibc_ver}"
 
-    # Test the malloc-chunk command on known chunks
     chunk_types = ["allocated_chunk", "tcache_chunk", "fast_chunk", "small_chunk", "large_chunk", "unsorted_chunk"]
     for name in chunk_types:
         addr = pwndbg.aglib.symbol.lookup_symbol_value(name)
         if addr is None or addr == 0:
             continue
         result = await ctrl.execute_and_capture(f"malloc-chunk {name}")
-        # Verify the command produced output (didn't crash)
         assert len(result) > 0, f"malloc-chunk {name} produced no output for glibc {glibc_ver}"
         # Verify it shows chunk type info
         assert "chunk" in result.lower() or "Addr:" in result, (
@@ -258,12 +246,10 @@ async def test_heap_heuristic_glibc_version(ctrl: Controller, glibc_ver: str, us
         f"(heuristic={use_heuristic}), got {type(allocator)}"
     )
 
-    # Verify main_arena is found
     main_arena = allocator.main_arena
     assert main_arena is not None, (
         f"main_arena not found for glibc {glibc_ver} (heuristic={use_heuristic})"
     )
 
-    # Verify the 'heap' command doesn't crash
     result = await ctrl.execute_and_capture("heap")
     assert len(result) > 0, f"'heap' command produced no output for glibc {glibc_ver}"
