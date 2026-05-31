@@ -6,8 +6,8 @@
 #
 # Output: /musls/<version>/ containing:
 #   lib/libc.a              (static archive, for static test binaries)
-#   lib/ld-musl-x86_64.so.1 (the real shared object = musl's libc and dynamic loader)
-#   lib/libc.so             (symlink -> ld-musl-x86_64.so.1; musl's libc and ld are one file)
+#   lib/libc.so             (the real shared object = the dynamic loader; SONAME libc.so)
+#   lib/ld-musl-x86_64.so.1 (symlink -> libc.so; musl's libc and ld are one file)
 #   lib/{crt1,Scrt1,crti,crtn}.o
 #   include/                (this version's headers)
 #
@@ -59,13 +59,15 @@ make install > /dev/null 2>&1
 echo "[5/5] Packaging artifacts..."
 mkdir -p "${OUT_DIR}/lib" "${OUT_DIR}/include"
 cp -a "${INSTALL_DIR}/lib/libc.a" "${OUT_DIR}/lib/"
-# musl's libc and dynamic loader are one file. Install it under the loader name
-# as the real file, with libc.so as a symlink -- the canonical musl layout. This
-# matters for detection: a dynamic binary's PT_INTERP is ld-musl-x86_64.so.1, so
-# gdb names the loaded module that; keeping it the real file (not a symlink to
-# libc.so) lets pwndbg's objfile lookup find the exported __freadahead symbol.
-cp -a "${INSTALL_DIR}/lib/libc.so" "${OUT_DIR}/lib/ld-musl-x86_64.so.1"
-ln -sf "ld-musl-x86_64.so.1" "${OUT_DIR}/lib/libc.so"
+# musl's libc and dynamic loader are one file. Package it as libc.so (the real
+# shared object) with ld-musl-x86_64.so.1 as the loader symlink -- the layout
+# distro musl uses. Crucially, give it a SONAME: a binary linked against it then
+# records DT_NEEDED=libc.so (a name), not an absolute path. Without a SONAME the
+# linker bakes in the absolute path, which musl resolves to the interpreter
+# itself, so no separate libc maps at runtime and pwndbg can't detect it.
+cp -a "${INSTALL_DIR}/lib/libc.so" "${OUT_DIR}/lib/"
+patchelf --set-soname libc.so "${OUT_DIR}/lib/libc.so"
+ln -sf "libc.so" "${OUT_DIR}/lib/ld-musl-x86_64.so.1"
 cp -a "${INSTALL_DIR}/lib/"crt1.o "${INSTALL_DIR}/lib/"Scrt1.o \
       "${INSTALL_DIR}/lib/"crti.o "${INSTALL_DIR}/lib/"crtn.o "${OUT_DIR}/lib/"
 cp -a "${INSTALL_DIR}/include/." "${OUT_DIR}/include/"

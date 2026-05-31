@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     wget \
     ca-certificates \
+    patchelf \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/build-one-musl.sh /build-one-musl.sh
