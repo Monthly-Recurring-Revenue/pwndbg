@@ -146,14 +146,17 @@ $(1).musl-$(2)-static.out: $(1).native.c
 	$$(PWD)/musls/$(2)/lib/libc.a $$(PWD)/musls/$(2)/lib/crtn.o
 endef
 
-# Dynamic: link against the version's libc.so and bake its loader in as the
-# interpreter (plus -rpath) so the binary loads that exact musl at runtime.
+# Dynamic: link against the version's libc.so with -rpath so it loads that exact
+# musl at runtime. The interpreter is set via a .interp section emitted from the
+# source (-DMUSL_DYNAMIC_INTERP), NOT -Wl,--dynamic-linker: the pinned zig 0.14.1
+# lld silently drops that flag for a -nostdlib link, yielding a binary with no
+# PT_INTERP that never loads libc (so pwndbg reads it as statically linked).
 define MUSL_HEAP_DYNAMIC_TARGET
 $(1).musl-$(2)-dynamic.out: $(1).native.c
 	@echo "[+] Building '$$@' against musl $(2) (dynamic)"
 	$${ZIGCC} $${CFLAGS} -no-pie -fno-pie -nostdlibinc -nostdlib \
 	-isystem $$(PWD)/musls/$(2)/include \
-	-Wl,--dynamic-linker=$$(PWD)/musls/$(2)/lib/ld-musl-x86_64.so.1 \
+	-DMUSL_DYNAMIC_INTERP=\"$$(PWD)/musls/$(2)/lib/ld-musl-x86_64.so.1\" \
 	-Wl,-rpath=$$(PWD)/musls/$(2)/lib \
 	-o $$@ \
 	$$(PWD)/musls/$(2)/lib/crt1.o $$(PWD)/musls/$(2)/lib/crti.o \

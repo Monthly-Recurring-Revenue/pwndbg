@@ -68,23 +68,6 @@ async def test_musl_version_detection(ctrl: Controller, musl_ver: str, linkage: 
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("musl version tests are x86-64 only")
 
-    # --- TEMP DIAGNOSTIC (remove after): is the dynamic binary actually a proper
-    # dynamic ELF? Dump ELF type / PT_INTERP / DT_NEEDED + what gdb sees. ---
-    if linkage == "dynamic":
-        import subprocess
-
-        import pwndbg.libc.facade as _facade
-
-        for _a in (["readelf", "-hW"], ["readelf", "-lW"], ["readelf", "-dW"]):
-            _r = subprocess.run([*_a, str(binary)], capture_output=True, text=True)
-            print(f"[DIAG {musl_ver}] $ {' '.join(_a)} <bin>\n{_r.stdout}{_r.stderr}")
-        print(f"[DIAG {musl_ver}] info sharedlibrary:\n{await ctrl.execute_and_capture('info sharedlibrary')}")
-        try:
-            print(f"[DIAG {musl_ver}] facade.filepath={_facade.filepath()}")
-        except Exception as _e:  # noqa: BLE001
-            print(f"[DIAG {musl_ver}] facade.filepath error: {_e}")
-    # --- END TEMP DIAGNOSTIC ---
-
     assert pwndbg.libc.which() == pwndbg.libc.LibcType.MUSL
     assert pwndbg.libc.version() == musl_ver_tuple(musl_ver), (
         f"expected musl {musl_ver_tuple(musl_ver)}, detected {pwndbg.libc.version()}"
