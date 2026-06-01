@@ -140,3 +140,22 @@ int main () {
 ## QEMU Tests
 
 To test architecture specific features, like disassembly annotations, we use emulate the appropriate architecure with qemu-user and attach to its debug port. These tests are located in [`tests/library/qemu_user/tests`](https://github.com/pwndbg/pwndbg/tree/dev/tests/library/qemu_user/tests). They are currently `gdb-only` and thus follow the same format as the `gdb/` tests. They require a Python function with a Pytest fixture name as the parameter (it matches based on the name). You call the argument/fixture to start debugging a binary. The `qemu_assembly_run` fixture takes in a Python string of assembly code, compiles it in the appropriate architecture, and runs it - no need to create an external file or edit a Makefile.
+
+## Libc Version Testing
+
+`tests/library/dbg/tests/test_heap_glibc_versions.py`, `test_musl_versions.py`, and `test_bionic_versions.py` exercise pwndbg's libc detection (and, for glibc, the heap commands) against many libc versions. The per-version / per-API libc artifacts are built from source into small `ghcr.io` "scratch" images (one per libc: `Dockerfile.{glibc,musl,bionic}-test-libs`) that CI pulls, rebuilding only when an image-defining file changes. See [`.github/workflows/heap-libc-tests.yml`](https://github.com/pwndbg/pwndbg/blob/dev/.github/workflows/heap-libc-tests.yml).
+
+**Adding or removing a version is a one-line change:** edit only the `FROM base-builder AS build-<ver>` stages in the relevant `Dockerfile.*-test-libs`. The makefile, the `scripts/download-test-*.sh` scripts, and the tests all re-parse that single list.
+
+**Running locally** (needs Docker):
+
+```bash
+./scripts/download-test-glibcs.sh    # or download-test-musls.sh / download-test-bionics.sh
+make -C tests/binaries/host -j4 all  # glibc/musl only; bionic ships prebuilt binaries
+./tests.sh -d gdb -g dbg test_musl_versions
+```
+
+**Caveats:**
+
+- **musl**: its allocator fingerprint (mallocng) only exists since 1.2.1, so older versions (e.g. 1.1.24) are tested dynamically only. The dynamic binaries emit a `.interp` section explicitly because the pinned `zig` silently drops `-Wl,--dynamic-linker` for `-nostdlib` links.
+- **bionic**: there is no pwndbg bionic provider yet, so its test only checks that a static Android binary runs under gdb and matches its `.note.android.ident` API level, not `which()`. The binaries are prebuilt inside the image because the NDK clang isn't in the test container.
