@@ -306,17 +306,7 @@ jobs:
         run: |
           docker compose run -T --rm --quiet-pull -v "$(pwd):/pwndbg" ubuntu24.04 bash -c '
             set -euo pipefail
-            command -v patchelf >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq patchelf; }
             make -C /pwndbg/tests/binaries/host -j4 all
-            # zig cc omits PT_INTERP when linking our from-source musl libc.so, so the
-            # dynamic binaries load no libc that gdb can see (pwndbg reads them as
-            # static). Force the matching loader as the interpreter so the dynamic
-            # path is exercised and detection works.
-            for f in /pwndbg/tests/binaries/host/heap_musl.musl-*-dynamic.out; do
-              [ -e "$f" ] || continue
-              ver=$(basename "$f" | sed -E "s/^heap_musl\.musl-(.+)-dynamic\.out$/\1/")
-              patchelf --set-interpreter "/pwndbg/tests/binaries/host/musls/${ver}/lib/ld-musl-x86_64.so.1" "$f"
-            done
             echo "Running musl multi-version tests..."
             ./tests.sh -d gdb -g dbg test_musl_versions
           '
@@ -356,7 +346,8 @@ jobs:
           if [ -z "${diff_range}" ]; then
             image_changed=yes
           elif [ -n "$(git diff --name-only "${diff_range}" -- \
-                        Dockerfile.bionic-test-libs scripts/build-one-bionic.sh)" ]; then
+                        Dockerfile.bionic-test-libs scripts/build-one-bionic.sh \
+                        tests/binaries/host/bionic_probe.native.c)" ]; then
             image_changed=yes
           else
             image_changed=no
