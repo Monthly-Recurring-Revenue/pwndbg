@@ -8,7 +8,8 @@
 # The final image is a minimal scratch image containing only the musl artifacts:
 #   /musls/1.2.5/lib/{libc.a,libc.so,ld-musl-x86_64.so.1,crt*.o}  /musls/1.2.5/include/  ...
 
-FROM debian:12 AS base-builder
+# debian:12 (bookworm), pinned by digest for reproducibility.
+FROM debian:12@sha256:ed4fcc40bb1162b6d2d32e7bec15044d13963779abbe63f67f1cd62b06220519 AS base-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \

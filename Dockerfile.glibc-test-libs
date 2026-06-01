@@ -15,8 +15,9 @@
 #   libc.so.6               (symlink -> libc-X.XX.so)
 #   .debug/libc-X.XX.so     (separate debug info)
 
-# Use Debian 12 (GCC 12) - newer GCC versions (13/14) break older glibc builds
-FROM debian:12 AS base-builder
+# Use Debian 12 (GCC 12) - newer GCC versions (13/14) break older glibc builds.
+# Pinned by digest for reproducibility (debian:12 = bookworm).
+FROM debian:12@sha256:ed4fcc40bb1162b6d2d32e7bec15044d13963779abbe63f67f1cd62b06220519 AS base-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
