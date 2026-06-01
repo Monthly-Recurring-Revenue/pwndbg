@@ -28,7 +28,8 @@ assert MUSL_VERSIONS, f"no musl versions parsed from {_DOCKERFILE}"
 
 # mallocng replaced musl's old allocator in 1.2.1. A statically-linked binary is
 # only fingerprintable as musl via the mallocng signature, so older versions are
-# exercised dynamically only (where the exported __freadahead drives detection).
+# exercised dynamically only -- there the loaded libc is identified by the
+# "/tmp/tmpnam_XXXX" rodata string (the provider uses __freadahead only as a gate).
 _MALLOCNG_MIN = (1, 2, 1)
 
 

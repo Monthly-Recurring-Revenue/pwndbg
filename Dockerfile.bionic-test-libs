@@ -43,10 +43,9 @@ RUN chmod +x /build-one-bionic.sh
 COPY tests/binaries/host/bionic_probe.native.c /bionic_probe.native.c
 
 # Build each API level in a separate stage for caching.
-# The download script and test parse the API list from these build-<API> stages,
-# so add/remove an API level here only. API levels are plain integers, matched by
-# the same `sed -n 's/^FROM base-builder AS build-\([0-9][0-9.]*\).*/\1/p'`
-# pattern the musl/glibc setups use.
+# The download script (sed) and the test (Python re) both parse the API list from
+# these build-<API> stages, so add/remove an API level here only. API levels are
+# plain integers.
 # Each RUN produces /bionics/<API>/ with the static probe binary.
 
 FROM base-builder AS build-21

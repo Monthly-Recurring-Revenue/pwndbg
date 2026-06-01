@@ -32,7 +32,7 @@ from . import pwndbg_test
 # API levels parsed from Dockerfile.bionic-test-libs (its build-<API> stages) so
 # the list lives in one place. API levels are plain integers.
 _DOCKERFILE = pathlib.Path(__file__).resolve().parents[4] / "Dockerfile.bionic-test-libs"
-_API_STRINGS = re.findall(r"(?m)^FROM base-builder AS build-([0-9.]+)", _DOCKERFILE.read_text())
+_API_STRINGS = re.findall(r"(?m)^FROM base-builder AS build-([0-9]+)", _DOCKERFILE.read_text())
 BIONIC_APIS = [int(a) for a in _API_STRINGS]
 assert BIONIC_APIS, f"no API levels parsed from {_DOCKERFILE}"
 

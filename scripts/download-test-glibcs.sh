@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds glibc test libraries locally using Docker and extracts them.
+# Pulls the prebuilt glibc test-libs image (or builds it locally as a fallback)
+# and extracts the artifacts.
 #
 # Usage: ./scripts/download-test-glibcs.sh
 #

@@ -49,6 +49,7 @@ async def test_heap_version_detection(ctrl: Controller, glibc_ver: str) -> None:
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("glibc version tests are x86-64 only")
 
+    assert pwndbg.libc.which() == pwndbg.libc.LibcType.GLIBC
     detected = pwndbg.libc.version()
     expected = glibc_ver_tuple(glibc_ver)
     assert detected == expected, f"Expected glibc {expected}, detected {detected}"
