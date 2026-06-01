@@ -43,15 +43,13 @@ echo "=== .note.android.ident (bionic fingerprint + build-target API) ==="
 notes=$(readelf -n "${OUT}" 2>/dev/null) || true
 echo "${notes}" | grep -iA3 android || true
 
-# Fail loud if the binary lacks the Android ident note or its android_api field,
-# since the version-axis test depends on reading that note.
+# Fail loud if the binary lacks the Android ident note -- the version-axis test
+# parses the android_api value out of that note's descriptor bytes. (readelf -n
+# prints the note's section name and raw description bytes, not a literal
+# "android_api" label, so we only check the note's presence here.)
 case "${notes}" in
     *.note.android.ident*) ;;
     *) echo "FATAL: .note.android.ident missing from ${OUT}"; exit 1 ;;
-esac
-case "${notes}" in
-    *android_api*) ;;
-    *) echo "FATAL: android_api field missing from ${OUT}"; exit 1 ;;
 esac
 
 echo "=== bionic probe (API ${API}) built successfully ==="
