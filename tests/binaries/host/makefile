@@ -81,7 +81,7 @@ GLIBC_HEAP_BINARIES := heap_malloc_chunk heap_bins
 AVAILABLE_GLIBC_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
     $(if $(wildcard $(PWD)/glibcs/$(ver)/ld-linux-x86-64.so.2),$(ver)))
 
-# One build rule per (binary, version). x86-64 only.
+# One build rule per (binary, version).
 # $(1) = binary base name, $(2) = glibc version
 ifeq ($(HOST_ARCH),x86-64)
 ifeq ($(strip $(GLIBC_TEST_VERSIONS)),)

@@ -5,15 +5,15 @@ Uses static Android-bionic test binaries pre-built by Dockerfile.bionic-test-lib
 (one per API level) and extracted into tests/binaries/host/bionics/. Each binary
 is fully static, so it launches under gdb on plain Linux with no emulator.
 
-For each API level this asserts the binary RUNS under gdb (reaches break_here)
-and that the build-target API level encoded in its .note.android.ident ELF note
-(the android_api field) matches the expected API.
+For each API level this asserts the static binary RUNS under gdb (reaches
+break_here) and that the android_api in its .note.android.ident ELF note matches
+the expected API.
 
-NOTE: this does NOT assert pwndbg.libc.which() == BIONIC. There is no bionic
-provider yet -- detection-as-BIONIC is deferred to the separate Android-Debugging
-project's deliverable. This test validates the build/run/version axis that the
-harness itself owns, mirroring how test_musl_versions.py owns the musl version
-axis.
+This is a build/run check, not pwndbg libc detection: the note is read from the
+on-disk file, and it does NOT assert pwndbg.libc.which() == BIONIC. There is no
+bionic provider yet -- detection-as-BIONIC is the separate Android-Debugging
+project's deliverable, and the which()/version() assertions (like the musl/glibc
+tests have) get added here once it exists.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ async def test_bionic_version(ctrl: Controller, api: int) -> None:
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("bionic version tests are x86-64 only")
 
-    detected_api = _read_android_api(binary)
-    assert detected_api == api, (
-        f"expected android_api {api}, got {detected_api} from .note.android.ident"
+    note_api = _read_android_api(binary)
+    assert note_api == api, (
+        f"expected android_api {api}, got {note_api} from .note.android.ident"
     )

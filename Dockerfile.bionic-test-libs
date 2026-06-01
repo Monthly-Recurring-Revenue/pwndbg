@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # stage reuses the same cached layer (the NDK is large; downloading per-stage
 # would be wasteful). Pinned to r27d to match the bionic spike.
 ARG NDK_VERSION=r27d
-# SHA1 Google publishes for the r27d Linux NDK; bump alongside NDK_VERSION.
+# SHA1 Google publishes for this NDK_VERSION's Linux zip; bump both together.
 ARG NDK_SHA1=22105e410cf29afcf163760cc95522b9fb981121
 RUN curl -fsSL -o /tmp/ndk.zip \
         "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip" \

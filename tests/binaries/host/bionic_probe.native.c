@@ -11,7 +11,8 @@
 void break_here(void) {}
 
 int main(void) {
-    // Touch the allocator so the binary exercises bionic's malloc.
+    // malloc() so a future bionic heap provider would have allocator state to
+    // inspect; today the test only checks the binary runs + its API note.
     void *p = malloc(64);
     break_here();
     free(p);

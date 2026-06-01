@@ -4,6 +4,8 @@ __pycache__/
 
 # C extensions
 *.so
+# Only for the committed glibcs/2.33 fixture; the harness-extracted glibcs/<ver>,
+# musls/<ver>/lib/*.so, and bionic .out binaries stay ignored (runtime artifacts).
 !tests/binaries/**/glibcs/**/*.so
 
 # Distribution / packaging
