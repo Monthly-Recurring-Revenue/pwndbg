@@ -41,6 +41,7 @@ async def test_heap_version_detection(ctrl: Controller, glibc_ver: str) -> None:
     if not binary.exists():
         pytest.skip(f"glibc {glibc_ver} test binary not available")
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
 
     import pwndbg.aglib
@@ -63,6 +64,7 @@ async def test_heap_allocator_setup(ctrl: Controller, glibc_ver: str) -> None:
     if not binary.exists():
         pytest.skip(f"glibc {glibc_ver} test binary not available")
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
 
     import pwndbg.aglib
@@ -100,6 +102,7 @@ async def test_heap_bins_glibc_version(ctrl: Controller, glibc_ver: str) -> None
     from pwndbg.aglib.heap.ptmalloc import BinType
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
+    await ctrl.disable_debuginfod()
     await ctrl.launch(binary)
 
     if pwndbg.aglib.arch.name != "x86-64":
@@ -193,6 +196,7 @@ async def test_heap_malloc_chunk_glibc_version(ctrl: Controller, glibc_ver: str)
     import pwndbg.aglib.symbol
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
+    await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
 
     if pwndbg.aglib.arch.name != "x86-64":
@@ -230,6 +234,7 @@ async def test_heap_heuristic_glibc_version(ctrl: Controller, glibc_ver: str, us
     import pwndbg.aglib.heap
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
+    await ctrl.disable_debuginfod()
     await ctrl.launch(binary)
 
     if pwndbg.aglib.arch.name != "x86-64":
