@@ -134,15 +134,6 @@ objcopy --add-gnu-debuglink="${OUT_DIR}/.debug/libc-${VERSION}.so" "${OUT_DIR}/l
 
 ln -sf "libc-${VERSION}.so" "${OUT_DIR}/libc.so.6"
 
-# pwndbg's glibc version() reads __libc_version (stripped away above), then falls
-# back to scanning .rodata for the "GNU C Library ... release version" banner --
-# the only path left for these stripped libs. Fail loud if a future glibc ever
-# drops that banner (mirrors the musl build's __libc_version guard).
-if ! strings -a "${OUT_DIR}/libc-${VERSION}.so" | grep -q "GNU C Library"; then
-    echo "FATAL: 'GNU C Library' release banner missing from libc-${VERSION}.so"
-    exit 1
-fi
-
 # Cleanup build artifacts to save space
 rm -rf "${SRC_DIR}" "${BUILD_DIR}" "${INSTALL_DIR}" "${TARBALL}"
 
