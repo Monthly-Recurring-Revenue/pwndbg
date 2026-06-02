@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import os
+import re
 from collections.abc import Callable
 from collections.abc import Coroutine
 from inspect import signature
@@ -39,6 +40,26 @@ def pwndbg_test(
 
 def get_binary(name: str) -> Path:
     return Path(BINARIES_PATH) / name
+
+
+def glibc_test_versions() -> list[str]:
+    """glibc versions with prebuilt artifacts, parsed from Dockerfile.glibc-test-libs
+    (its build-<ver> stages) so the list lives in one place."""
+    dockerfile = Path(__file__).resolve().parents[4] / "Dockerfile.glibc-test-libs"
+    return re.findall(r"(?m)^FROM base-builder AS build-([0-9.]+)", dockerfile.read_text())
+
+
+def glibc_version_binaries(stem: str) -> list[tuple[str, Path]]:
+    """(id, binary) for the container's system build of `stem` plus each per-glibc
+    -version build (`<stem>.glibc-<ver>.out`) present on disk. The per-version
+    binaries exist only once the heap-libc-tests workflow has built them, so a
+    normal run gets just the system one; this lets the same test run against every
+    glibc version when they are available. `make all` fails loudly if a requested
+    binary did not build, so filtering on existence cannot hide one."""
+    targets = [("system", get_binary(f"{stem}.native.out"))]
+    for ver in glibc_test_versions():
+        targets.append((ver, get_binary(f"{stem}.glibc-{ver}.out")))
+    return [(name, b) for name, b in targets if b.exists()]
 
 
 def break_at_sym(sym: str) -> None:

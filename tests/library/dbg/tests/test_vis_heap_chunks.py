@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ....host import Controller
-from . import get_binary
+from . import glibc_version_binaries
 from . import launch_to
 from . import pwndbg_test
 
-HEAP_VIS = get_binary("heap_vis.native.out")
+_VIS_BINARIES = glibc_version_binaries("heap_vis")
 
 
+@pytest.mark.parametrize(
+    "binary", [b for _, b in _VIS_BINARIES], ids=[i for i, _ in _VIS_BINARIES]
+)
 @pwndbg_test
-async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
+async def test_vis_heap_chunk_command(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.memory
     import pwndbg.aglib.vmmap
@@ -19,7 +24,7 @@ async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
     # Disable collapsible output for existing test expectations
     await ctrl.execute("set vis-skip-repeating-val off")
 
-    await launch_to(ctrl, HEAP_VIS, "break_here")
+    await launch_to(ctrl, binary, "break_here")
 
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
