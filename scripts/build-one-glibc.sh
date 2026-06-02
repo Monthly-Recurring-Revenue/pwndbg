@@ -19,17 +19,31 @@ OUT_DIR="/glibcs/${VERSION}"
 
 echo "=== Building glibc ${VERSION} ==="
 
-# Download source (random delay to avoid thundering herd when BuildKit runs stages in parallel)
-DELAY=$((RANDOM % 15))
+# Download source. BuildKit runs every version stage in parallel, so they hit the
+# mirror at once; jitter the start to spread out that thundering herd.
+DELAY=$((RANDOM % 30))
 echo "[1/5] Downloading glibc-${VERSION} (delay ${DELAY}s)..."
 sleep "${DELAY}"
 TARBALL="/tmp/glibc-${VERSION}.tar.gz"
-URL="https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.gz"
-MIRROR="https://ftpmirror.gnu.org/glibc/glibc-${VERSION}.tar.gz"
-if ! wget -q --retry-connrefused --waitretry=10 --tries=3 --timeout=60 "${URL}" -O "${TARBALL}"; then
-    echo "Primary download failed, trying mirror..."
-    wget -q --retry-connrefused --waitretry=10 --tries=3 --timeout=60 "${MIRROR}" -O "${TARBALL}"
-fi
+# ftp.gnu.org rate-limits hard under that parallel load, so try the load-balancing
+# redirector and a reliable CDN mirror first and fall back to the canonical host.
+# Each mirror gets several retries with backoff before falling through to the next.
+MIRRORS=(
+    "https://ftpmirror.gnu.org/glibc/glibc-${VERSION}.tar.gz"
+    "https://mirrors.kernel.org/gnu/glibc/glibc-${VERSION}.tar.gz"
+    "https://ftp.gnu.org/gnu/glibc/glibc-${VERSION}.tar.gz"
+)
+downloaded=
+for url in "${MIRRORS[@]}"; do
+    echo "Fetching ${url}"
+    if wget -q --retry-connrefused --retry-on-host-error --waitretry=15 \
+            --tries=5 --timeout=60 "${url}" -O "${TARBALL}"; then
+        downloaded=1
+        break
+    fi
+    echo "  mirror failed, trying next..."
+done
+[ -n "${downloaded}" ] || { echo "ERROR: all glibc ${VERSION} mirrors failed"; exit 4; }
 mkdir -p "${SRC_DIR}"
 tar xf "${TARBALL}" -C "${SRC_DIR}" --strip-components=1
 
