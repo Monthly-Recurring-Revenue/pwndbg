@@ -53,6 +53,7 @@ jobs:
               - 'pwndbg/libc/**'
               - 'tests/library/dbg/tests/test_heap*'
               - 'tests/library/dbg/tests/test_musl*'
+              - 'tests/library/dbg/tests/test_mallocng*'
               - 'tests/library/dbg/tests/test_bionic*'
               - 'tests/binaries/host/makefile'
               - 'tests/binaries/host/heap_malloc_chunk.native.c'
@@ -98,7 +99,7 @@ jobs:
             artifact_dir: musls
             sentinel: lib/libc.a
             build_binaries: true
-            test_filter: test_musl_versions
+            test_filter: "test_musl_versions|test_mallocng"
           - libc: bionic
             image: bionic-test-libs
             dockerfile: Dockerfile.bionic-test-libs
@@ -221,5 +222,5 @@ jobs:
               make -C /pwndbg/tests/binaries/host -j4 all
             fi
             echo "Running ${{ matrix.libc }} multi-version tests..."
-            ./tests.sh -d gdb -g dbg ${{ matrix.test_filter }}
+            ./tests.sh -d gdb -g dbg "${{ matrix.test_filter }}"
           '
