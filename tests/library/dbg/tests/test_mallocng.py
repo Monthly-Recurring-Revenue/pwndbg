@@ -341,11 +341,14 @@ async def test_mallocng_malloc_context(ctrl: Controller, binary: Path):
 
     await ctrl.launch(binary)
 
-    # Check that we do not find it at the first program instruction
-    if "static" not in binary.name:
-        # Since our static binary is symbolicated, we would still find
-        # __malloc_context by simply looking up the symbol. So we only
-        # check this for the dynamically linked binary.
+    # Check that we do not find it at the first program instruction. This holds
+    # only for the system dynamic binary, which stops at _dlstart with the heap
+    # uninitialized and no __malloc_context symbol resolvable. Static binaries are
+    # symbolicated (the symbol resolves immediately), and the per-version dynamic
+    # binaries are linked differently and don't reliably stop in that pre-init
+    # state, so this negative check is system-specific. The positive check after
+    # `entry` below is the real, cross-version assertion.
+    if binary.name == "heap_musl_dyn.native.out":
 
         # This is at _dlstart - the heap is uninitialized at this point.
         ctx_out = color.strip(await ctrl.execute_and_capture("ng ctx"))
