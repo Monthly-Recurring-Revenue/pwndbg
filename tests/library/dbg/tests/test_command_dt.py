@@ -1,24 +1,35 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
 from ....host import Controller
 from . import get_binary
+from . import glibc_version_binaries
 from . import launch_to
 from . import pwndbg_test
 
-HEAP_MALLOC_CHUNK = get_binary("heap_malloc_chunk.native.out")
+# The tcache_perthread_struct schema changed across glibc versions (2.42: counts ->
+# num_slots, 64 -> 76 slots) and the dt assertions below already accept both. Run them
+# across every built glibc version (not just the container's) by reusing the existing
+# heap_malloc_chunk per-version binaries.
+_HEAP_MALLOC_CHUNK_BINARIES = glibc_version_binaries("heap_malloc_chunk")
 DT_RECURSIVE_OFFSETS = get_binary("dt_recursive_offsets.native.out")
 DT_BITFIELDS = get_binary("dt_bitfields.native.out")
 
 
+@pytest.mark.parametrize(
+    "binary",
+    [b for _, b in _HEAP_MALLOC_CHUNK_BINARIES],
+    ids=[i for i, _ in _HEAP_MALLOC_CHUNK_BINARIES],
+)
 @pwndbg_test
-async def test_command_dt_works_with_address(ctrl: Controller) -> None:
+async def test_command_dt_works_with_address(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
 
-    await launch_to(ctrl, HEAP_MALLOC_CHUNK, "break_here")
+    await launch_to(ctrl, binary, "break_here")
 
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
@@ -38,11 +49,16 @@ async def test_command_dt_works_with_address(ctrl: Controller) -> None:
     assert re.match(exp_regex, out)
 
 
+@pytest.mark.parametrize(
+    "binary",
+    [b for _, b in _HEAP_MALLOC_CHUNK_BINARIES],
+    ids=[i for i, _ in _HEAP_MALLOC_CHUNK_BINARIES],
+)
 @pwndbg_test
-async def test_command_dt_works_with_no_address(ctrl: Controller) -> None:
+async def test_command_dt_works_with_no_address(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
 
-    await launch_to(ctrl, HEAP_MALLOC_CHUNK, "break_here")
+    await launch_to(ctrl, binary, "break_here")
 
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")

@@ -9,11 +9,13 @@ For each API level this asserts the static binary RUNS under gdb (reaches
 break_here) and that the android_api in its .note.android.ident ELF note matches
 the expected API.
 
-This is a build/run check, not pwndbg libc detection: the note is read from the
-on-disk file, and it does NOT assert pwndbg.libc.which() == BIONIC. There is no
-bionic provider yet -- detection-as-BIONIC is the separate Android-Debugging
-project's deliverable, and the which()/version() assertions (like the musl/glibc
-tests have) get added here once it exists.
+The note read here is a build/run check (read from the on-disk file). pwndbg's own
+detection on a bionic binary is covered by test_bionic_libc_detection below: which()
+== UNKNOWN (there is no bionic provider yet -- a real BIONIC type is the separate
+Android-Debugging project's deliverable), version() == (-1, -1), and has_debug_info()
+is False. test_bionic_commands and test_bionic_heap_graceful cover that pwndbg's
+libc-agnostic commands work and its heap commands degrade gracefully on a bionic
+(scudo) binary.
 """
 
 from __future__ import annotations
@@ -85,3 +87,28 @@ async def test_bionic_version(ctrl: Controller, api: int) -> None:
     assert note_api == api, (
         f"expected android_api {api}, got {note_api} from .note.android.ident"
     )
+
+
+@pytest.mark.parametrize("api", BIONIC_APIS, ids=[str(a) for a in BIONIC_APIS])
+@pwndbg_test
+async def test_bionic_libc_detection(ctrl: Controller, api: int) -> None:
+    """What pwndbg's libc detection does on a static bionic binary today: there is no
+    bionic provider, so which() is UNKNOWN (and must not crash), version() is (-1, -1),
+    and has_debug_info() is False. Turning these into a real BIONIC assertion is the
+    separate Android-Debugging project's job."""
+    binary = get_binary(f"bionics/{api}/bionic_probe.bionic-{api}-static.out")
+    if not binary.exists():
+        pytest.skip(f"bionic API {api} test binary not available")
+
+    import pwndbg.aglib
+    import pwndbg.libc
+
+    await ctrl.disable_debuginfod()
+    await launch_to(ctrl, binary, "break_here")
+
+    if pwndbg.aglib.arch.name != "x86-64":
+        pytest.skip("bionic tests are x86-64 only")
+
+    assert pwndbg.libc.which() == pwndbg.libc.LibcType.UNKNOWN
+    assert pwndbg.libc.version() == (-1, -1)
+    assert pwndbg.libc.has_debug_info() is False

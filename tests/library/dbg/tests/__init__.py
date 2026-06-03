@@ -62,6 +62,18 @@ def glibc_version_binaries(stem: str) -> list[tuple[str, Path]]:
     return [(name, b) for name, b in targets if b.exists()]
 
 
+def bionic_api_binaries() -> list[tuple[str, Path]]:
+    """(id, binary) per Android API level with a prebuilt static bionic probe present.
+    Parsed from Dockerfile.bionic-test-libs build-<API> stages. These ship prebuilt per
+    API level (not compiled per version), so this is an API axis, not a version one."""
+    dockerfile = Path(__file__).resolve().parents[4] / "Dockerfile.bionic-test-libs"
+    apis = re.findall(r"(?m)^FROM base-builder AS build-([0-9]+)", dockerfile.read_text())
+    targets = [
+        (api, get_binary(f"bionics/{api}/bionic_probe.bionic-{api}-static.out")) for api in apis
+    ]
+    return [(name, b) for name, b in targets if b.exists()]
+
+
 def break_at_sym(sym: str) -> None:
     import pwndbg
     from pwndbg.dbg_mod import BreakpointLocation
