@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from ....host import Controller
-from . import glibc_version_binaries
+from . import get_binary
 from . import launch_to
 from . import pwndbg_test
 
-_VIS_BINARIES = glibc_version_binaries("heap_vis")
+# System glibc only: this test hardcodes the exact heap chunk layout (expected2/3/4),
+# which legitimately shifts across glibc versions (e.g. 2.43 moved the top chunk), so
+# it is a single-version format check, not a layout-portable one. Cross-version heap
+# coverage comes from the version-parametrized detection/bins/malloc-chunk and
+# find-fake-fast tests instead.
+HEAP_VIS = get_binary("heap_vis.native.out")
 
 
-@pytest.mark.parametrize(
-    "binary", [b for _, b in _VIS_BINARIES], ids=[i for i, _ in _VIS_BINARIES]
-)
 @pwndbg_test
-async def test_vis_heap_chunk_command(ctrl: Controller, binary: Path) -> None:
+async def test_vis_heap_chunk_command(ctrl: Controller) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.memory
     import pwndbg.aglib.vmmap
@@ -24,7 +24,7 @@ async def test_vis_heap_chunk_command(ctrl: Controller, binary: Path) -> None:
     # Disable collapsible output for existing test expectations
     await ctrl.execute("set vis-skip-repeating-val off")
 
-    await launch_to(ctrl, binary, "break_here")
+    await launch_to(ctrl, HEAP_VIS, "break_here")
 
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")

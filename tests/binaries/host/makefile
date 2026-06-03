@@ -75,7 +75,7 @@ endif
 # via @pytest.mark.parametrize.
 # Versions parsed from Dockerfile.glibc-test-libs (its build-<ver> stages).
 GLIBC_TEST_VERSIONS := $(shell sed -n 's/^FROM base-builder AS build-\([0-9][0-9.]*\).*/\1/p' $(PWD)/../../../Dockerfile.glibc-test-libs)
-GLIBC_HEAP_BINARIES := heap_malloc_chunk heap_bins heap_vis heap_find_fake_fast
+GLIBC_HEAP_BINARIES := heap_malloc_chunk heap_bins heap_find_fake_fast
 
 # Only versions whose artifacts are actually present on disk get built.
 AVAILABLE_GLIBC_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
