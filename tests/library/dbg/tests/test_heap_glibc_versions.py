@@ -33,6 +33,14 @@ def glibc_ver_tuple(ver: str) -> tuple[int, int]:
     return (int(parts[0]), int(parts[1]))
 
 
+# No-debug glibc binaries (built by the makefile against glibcs-nodebug/<ver>/). Present
+# only when the heap-libc-tests workflow has built the no-debug image variant.
+_NODEBUG_BINARIES = [
+    (ver, get_binary(f"heap_malloc_chunk.glibc-{ver}-nodebug.out")) for ver in GLIBC_VERSIONS
+]
+_NODEBUG_BINARIES = [(ver, b) for ver, b in _NODEBUG_BINARIES if b.exists()]
+
+
 @pytest.mark.parametrize("glibc_ver", GLIBC_VERSIONS)
 @pwndbg_test
 async def test_heap_version_detection(ctrl: Controller, glibc_ver: str) -> None:
@@ -259,3 +267,48 @@ async def test_heap_heuristic_glibc_version(ctrl: Controller, glibc_ver: str, us
 
     result = await ctrl.execute_and_capture("heap")
     assert len(result) > 0, f"'heap' command produced no output for glibc {glibc_ver}"
+
+
+@pytest.mark.parametrize(
+    "glibc_ver,binary",
+    _NODEBUG_BINARIES,
+    ids=[f"{ver}-nodebug" for ver, _ in _NODEBUG_BINARIES],
+)
+@pwndbg_test
+async def test_heap_heuristic_nodebug_glibc_version(
+    ctrl: Controller, glibc_ver: str, binary: pathlib.Path
+) -> None:
+    """Genuine no-debug-info path. The libc ships with no separate debug file and no
+    .gnu_debuglink, so pwndbg cannot resolve main_arena by symbol: HeuristicHeap must
+    scan .data/relocations to find the arena, and version() must fall back to the
+    .rodata banner. (The 'heuristic' variant above only forces the code path while the
+    libc symbols are still present, so it never exercises that scan.)"""
+    import pwndbg.aglib
+    import pwndbg.aglib.heap
+    import pwndbg.libc
+    from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
+
+    await ctrl.disable_debuginfod()
+    await ctrl.launch(binary)
+
+    if pwndbg.aglib.arch.name != "x86-64":
+        pytest.skip("glibc version tests are x86-64 only")
+
+    # Prove the libc symbols are genuinely gone; otherwise the heuristic would just read
+    # main_arena by symbol and this test would be meaningless.
+    assert pwndbg.libc.has_debug_info() is False
+
+    await ctrl.execute("set resolve-heap-via-heuristic force")
+    await ctrl.execute("b break_here")
+    await ctrl.cont()
+
+    allocator = pwndbg.aglib.heap.current
+    assert isinstance(allocator, GlibcMemoryAllocator)
+    # The heuristic .data/relocation scan must find main_arena with no symbols.
+    assert allocator.main_arena is not None
+
+    # version() must still resolve via the .rodata banner with no debug symbols.
+    assert pwndbg.libc.version() == glibc_ver_tuple(glibc_ver)
+
+    result = await ctrl.execute_and_capture("heap")
+    assert len(result) > 0

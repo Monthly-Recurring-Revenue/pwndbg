@@ -134,6 +134,24 @@ objcopy --add-gnu-debuglink="${OUT_DIR}/.debug/libc-${VERSION}.so" "${OUT_DIR}/l
 
 ln -sf "libc-${VERSION}.so" "${OUT_DIR}/libc.so.6"
 
+# Optional no-debug variant (GLIBC_BUILD_NODEBUG=1): the same libc with the
+# separate debug info and the .gnu_debuglink removed, emitted to a parallel tree so
+# the debug-enabled artifacts above are untouched. With no debug file for GDB to
+# load, pwndbg has no main_arena symbol to shortcut on, so its heap heuristic must
+# actually scan .data/relocations, and version() must fall back to the .rodata
+# "GNU C Library" banner. This is what the *-nodebug heuristic test exercises.
+if [ "${GLIBC_BUILD_NODEBUG:-0}" = "1" ]; then
+    ND_DIR="/glibcs-nodebug/${VERSION}"
+    mkdir -p "${ND_DIR}"
+    cp "${OUT_DIR}/ld-${VERSION}.so" "${ND_DIR}/ld-${VERSION}.so"
+    ln -sf "ld-${VERSION}.so" "${ND_DIR}/ld-linux-x86-64.so.2"
+    cp "${OUT_DIR}/libc-${VERSION}.so" "${ND_DIR}/libc-${VERSION}.so"
+    objcopy --remove-section=.gnu_debuglink --strip-all "${ND_DIR}/libc-${VERSION}.so"
+    ln -sf "libc-${VERSION}.so" "${ND_DIR}/libc.so.6"
+    echo "=== glibc ${VERSION} no-debug variant ==="
+    ls -la "${ND_DIR}/"
+fi
+
 # Cleanup build artifacts to save space
 rm -rf "${SRC_DIR}" "${BUILD_DIR}" "${INSTALL_DIR}" "${TARBALL}"
 

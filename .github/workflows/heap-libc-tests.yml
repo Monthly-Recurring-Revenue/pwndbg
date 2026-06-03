@@ -196,6 +196,12 @@ jobs:
           mkdir -p "tests/binaries/host/${{ matrix.artifact_dir }}"
           docker cp "${CID}:/${{ matrix.artifact_dir }}/." "tests/binaries/host/${{ matrix.artifact_dir }}/"
           ls "tests/binaries/host/${{ matrix.artifact_dir }}/"
+          # glibc also ships a parallel no-debug tree for the heuristic-heap test.
+          if [ "${{ matrix.libc }}" = "glibc" ]; then
+            mkdir -p tests/binaries/host/glibcs-nodebug
+            docker cp "${CID}:/glibcs-nodebug/." tests/binaries/host/glibcs-nodebug/
+            ls tests/binaries/host/glibcs-nodebug/
+          fi
 
       # Cross-check against the versions declared in the Dockerfile, so a stale or
       # partial image fails loudly instead of a whole version silently never running.
@@ -213,6 +219,15 @@ jobs:
             fi
           done
           echo "Verified ${{ matrix.libc }} artifacts for: ${versions}"
+          if [ "${{ matrix.libc }}" = "glibc" ]; then
+            for ver in ${versions}; do
+              if ! compgen -G "tests/binaries/host/glibcs-nodebug/${ver}/ld-linux-x86-64.so.2" >/dev/null; then
+                echo "ERROR: missing no-debug artifact glibcs-nodebug/${ver}/ld-linux-x86-64.so.2"
+                exit 1
+              fi
+            done
+            echo "Verified glibc no-debug artifacts for: ${versions}"
+          fi
 
       - name: Run ${{ matrix.libc }} version tests
         run: |

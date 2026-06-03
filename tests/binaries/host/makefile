@@ -103,6 +103,30 @@ $(foreach bin,$(GLIBC_HEAP_BINARIES),\
 
 ALL_GLIBC_VERSION_TARGETS := $(foreach bin,$(GLIBC_HEAP_BINARIES),\
     $(foreach ver,$(AVAILABLE_GLIBC_VERSIONS),$(bin).glibc-$(ver).out))
+
+# No-debug glibc variants (linked against glibcs-nodebug/<ver>/, a stripped libc with
+# no .gnu_debuglink) so pwndbg must resolve the heap heuristically with no libc symbols.
+# Only heap_malloc_chunk needs one (the heuristic + version test target).
+GLIBC_NODEBUG_BINARIES := heap_malloc_chunk
+AVAILABLE_GLIBC_NODEBUG_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
+    $(if $(wildcard $(PWD)/glibcs-nodebug/$(ver)/ld-linux-x86-64.so.2),$(ver)))
+
+define GLIBC_HEAP_NODEBUG_TARGET
+$(1).glibc-$(2)-nodebug.out: $(1).native.c
+	@echo "[+] Building '$$@' against no-debug glibc $(2)"
+	$${ZIGCC} $${CFLAGS} -w \
+	-target x86_64-linux-gnu.$(2) \
+	-Wl,-rpath=$$(PWD)/glibcs-nodebug/$(2) \
+	-Wl,--dynamic-linker=$$(PWD)/glibcs-nodebug/$(2)/ld-linux-x86-64.so.2 \
+	-o $$@ $$< -pthread -lpthread
+endef
+
+$(foreach bin,$(GLIBC_NODEBUG_BINARIES),\
+    $(foreach ver,$(AVAILABLE_GLIBC_NODEBUG_VERSIONS),\
+        $(eval $(call GLIBC_HEAP_NODEBUG_TARGET,$(bin),$(ver)))))
+
+ALL_GLIBC_VERSION_TARGETS += $(foreach bin,$(GLIBC_NODEBUG_BINARIES),\
+    $(foreach ver,$(AVAILABLE_GLIBC_NODEBUG_VERSIONS),$(bin).glibc-$(ver)-nodebug.out))
 else
 ALL_GLIBC_VERSION_TARGETS :=
 endif
