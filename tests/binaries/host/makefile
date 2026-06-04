@@ -13,6 +13,23 @@ else ifeq ($(HOST_ARCH),i686)
     HOST_ARCH := i386
 endif
 
+# Per-arch names for the libc version-test binaries. x86-64 and aarch64 are both
+# 64-bit, so the tests themselves are arch-portable; only the loader name and the zig
+# target triple differ. LIBC_VER_ARCH_OK gates the glibc/musl version targets.
+ifeq ($(HOST_ARCH),x86-64)
+    LIBC_VER_ARCH_OK := yes
+    GLIBC_LD_NAME    := ld-linux-x86-64.so.2
+    MUSL_LD_NAME     := ld-musl-x86_64.so.1
+    ZIG_LIBC_TARGET  := x86_64-linux-gnu
+else ifeq ($(HOST_ARCH),aarch64)
+    LIBC_VER_ARCH_OK := yes
+    GLIBC_LD_NAME    := ld-linux-aarch64.so.1
+    MUSL_LD_NAME     := ld-musl-aarch64.so.1
+    ZIG_LIBC_TARGET  := aarch64-linux-gnu
+else
+    LIBC_VER_ARCH_OK := no
+endif
+
 ZIGCC           = uv run python3 -m ziglang cc
 PKG_CONFIG      ?=     pkg-config
 CC              =      gcc
@@ -79,11 +96,11 @@ GLIBC_HEAP_BINARIES := heap_malloc_chunk heap_bins heap_find_fake_fast
 
 # Only versions whose artifacts are actually present on disk get built.
 AVAILABLE_GLIBC_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
-    $(if $(wildcard $(PWD)/glibcs/$(ver)/ld-linux-x86-64.so.2),$(ver)))
+    $(if $(wildcard $(PWD)/glibcs/$(ver)/$(GLIBC_LD_NAME)),$(ver)))
 
 # One build rule per (binary, version).
 # $(1) = binary base name, $(2) = glibc version
-ifeq ($(HOST_ARCH),x86-64)
+ifeq ($(LIBC_VER_ARCH_OK),yes)
 ifeq ($(strip $(GLIBC_TEST_VERSIONS)),)
 $(error Could not parse glibc versions from Dockerfile.glibc-test-libs - expected 'FROM base-builder AS build-<ver>' stages)
 endif
@@ -91,9 +108,9 @@ define GLIBC_HEAP_TARGET
 $(1).glibc-$(2).out: $(1).native.c
 	@echo "[+] Building '$$@' against glibc $(2)"
 	$${ZIGCC} $${CFLAGS} -w \
-	-target x86_64-linux-gnu.$(2) \
+	-target $(ZIG_LIBC_TARGET).$(2) \
 	-Wl,-rpath=$$(PWD)/glibcs/$(2) \
-	-Wl,--dynamic-linker=$$(PWD)/glibcs/$(2)/ld-linux-x86-64.so.2 \
+	-Wl,--dynamic-linker=$$(PWD)/glibcs/$(2)/$(GLIBC_LD_NAME) \
 	-o $$@ $$< -pthread -lpthread
 endef
 
@@ -109,15 +126,15 @@ ALL_GLIBC_VERSION_TARGETS := $(foreach bin,$(GLIBC_HEAP_BINARIES),\
 # Only heap_malloc_chunk needs one (the heuristic + version test target).
 GLIBC_NODEBUG_BINARIES := heap_malloc_chunk
 AVAILABLE_GLIBC_NODEBUG_VERSIONS := $(foreach ver,$(GLIBC_TEST_VERSIONS),\
-    $(if $(wildcard $(PWD)/glibcs-nodebug/$(ver)/ld-linux-x86-64.so.2),$(ver)))
+    $(if $(wildcard $(PWD)/glibcs-nodebug/$(ver)/$(GLIBC_LD_NAME)),$(ver)))
 
 define GLIBC_HEAP_NODEBUG_TARGET
 $(1).glibc-$(2)-nodebug.out: $(1).native.c
 	@echo "[+] Building '$$@' against no-debug glibc $(2)"
 	$${ZIGCC} $${CFLAGS} -w \
-	-target x86_64-linux-gnu.$(2) \
+	-target $(ZIG_LIBC_TARGET).$(2) \
 	-Wl,-rpath=$$(PWD)/glibcs-nodebug/$(2) \
-	-Wl,--dynamic-linker=$$(PWD)/glibcs-nodebug/$(2)/ld-linux-x86-64.so.2 \
+	-Wl,--dynamic-linker=$$(PWD)/glibcs-nodebug/$(2)/$(GLIBC_LD_NAME) \
 	-o $$@ $$< -pthread -lpthread
 endef
 
@@ -150,7 +167,7 @@ MUSL_STATIC_VERSIONS := $(shell printf '%s\n' $(AVAILABLE_MUSL_VERSIONS) | \
     awk -F. -v min="$(MUSL_MALLOCNG_MIN)" 'BEGIN{split(min,m,".")} \
     ($$1>m[1])||($$1==m[1]&&$$2>m[2])||($$1==m[1]&&$$2==m[2]&&$$3>=m[3])')
 
-ifeq ($(HOST_ARCH),x86-64)
+ifeq ($(LIBC_VER_ARCH_OK),yes)
 ifeq ($(strip $(MUSL_TEST_VERSIONS)),)
 $(error Could not parse musl versions from Dockerfile.musl-test-libs - expected 'FROM base-builder AS build-<ver>' stages)
 endif
@@ -180,7 +197,7 @@ $(1).musl-$(2)-dynamic.out: $(1).native.c
 	@echo "[+] Building '$$@' against musl $(2) (dynamic)"
 	$${ZIGCC} $${CFLAGS} -no-pie -fno-pie -nostdlibinc -nostdlib \
 	-isystem $$(PWD)/musls/$(2)/include \
-	-DMUSL_DYNAMIC_INTERP=\"$$(PWD)/musls/$(2)/lib/ld-musl-x86_64.so.1\" \
+	-DMUSL_DYNAMIC_INTERP=\"$$(PWD)/musls/$(2)/lib/$(MUSL_LD_NAME)\" \
 	-Wl,-rpath=$$(PWD)/musls/$(2)/lib \
 	-o $$@ \
 	$$(PWD)/musls/$(2)/lib/crt1.o $$(PWD)/musls/$(2)/lib/crti.o \

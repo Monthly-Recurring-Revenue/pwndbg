@@ -66,8 +66,8 @@ async def test_musl_version_detection(ctrl: Controller, musl_ver: str, linkage: 
     await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
 
-    if pwndbg.aglib.arch.name != "x86-64":
-        pytest.skip("musl version tests are x86-64 only")
+    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
+        pytest.skip("musl version tests are x86-64/aarch64 only")
 
     assert pwndbg.libc.which() == pwndbg.libc.LibcType.MUSL
     assert pwndbg.libc.version() == musl_ver_tuple(musl_ver), (

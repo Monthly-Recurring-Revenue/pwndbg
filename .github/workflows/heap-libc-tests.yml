@@ -83,19 +83,46 @@ jobs:
   heap-libc-versions:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
-    name: heap-libc-versions (${{ matrix.libc }})
+    name: heap-libc-versions (${{ matrix.libc }}-${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
+        # glibc + musl run on both x86-64 (ubuntu-latest) and aarch64 (native
+        # ubuntu-24.04-arm; no emulation). bionic is x86-64 only: the Android NDK
+        # compiler ships only as an x86_64-Linux binary, so it cannot build on an
+        # arm runner. sentinel is the per-arch glibc loader name; musl's libc.a and
+        # bionic's probe are arch-agnostic.
         include:
           - libc: glibc
+            arch: x86-64
+            runs_on: ubuntu-latest
             image: glibc-test-libs
             dockerfile: Dockerfile.glibc-test-libs
             artifact_dir: glibcs
             sentinel: ld-linux-x86-64.so.2
             build_binaries: true
             test_filter: "test_heap_glibc_versions|test_find_fake_fast|test_command_dt"
+          - libc: glibc
+            arch: aarch64
+            runs_on: ubuntu-24.04-arm
+            image: glibc-test-libs
+            dockerfile: Dockerfile.glibc-test-libs
+            artifact_dir: glibcs
+            sentinel: ld-linux-aarch64.so.1
+            build_binaries: true
+            test_filter: "test_heap_glibc_versions|test_find_fake_fast|test_command_dt"
           - libc: musl
+            arch: x86-64
+            runs_on: ubuntu-latest
+            image: musl-test-libs
+            dockerfile: Dockerfile.musl-test-libs
+            artifact_dir: musls
+            sentinel: lib/libc.a
+            build_binaries: true
+            test_filter: "test_musl_versions|test_mallocng"
+          - libc: musl
+            arch: aarch64
+            runs_on: ubuntu-24.04-arm
             image: musl-test-libs
             dockerfile: Dockerfile.musl-test-libs
             artifact_dir: musls
@@ -103,13 +130,15 @@ jobs:
             build_binaries: true
             test_filter: "test_musl_versions|test_mallocng"
           - libc: bionic
+            arch: x86-64
+            runs_on: ubuntu-latest
             image: bionic-test-libs
             dockerfile: Dockerfile.bionic-test-libs
             artifact_dir: bionics
             sentinel: bionic_probe.*-static.out
             build_binaries: false
             test_filter: test_bionic
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -165,16 +194,16 @@ jobs:
           set -euo pipefail
           cache_to=""
           if [ "${{ steps.mode.outputs.mode }}" = "publish" ]; then
-            cache_to="--cache-to type=registry,ref=${IMAGE}:buildcache,mode=max"
+            cache_to="--cache-to type=registry,ref=${IMAGE}:buildcache-${{ matrix.arch }},mode=max"
           fi
           docker buildx build -f ${{ matrix.dockerfile }} \
-            --cache-from type=registry,ref=${IMAGE}:buildcache \
+            --cache-from type=registry,ref=${IMAGE}:buildcache-${{ matrix.arch }} \
             ${cache_to} \
-            -t "${IMAGE}:latest" --load .
+            -t "${IMAGE}:${{ matrix.arch }}" --load .
 
       - name: Push ${{ matrix.libc }} image
         if: steps.mode.outputs.mode == 'publish'
-        run: docker push "${IMAGE}:latest"
+        run: docker push "${IMAGE}:${{ matrix.arch }}"
 
       # Pull the prebuilt image; fall back to a local build if it isn't published
       # yet or the package isn't public.
@@ -182,16 +211,16 @@ jobs:
         if: steps.mode.outputs.mode == 'pull'
         run: |
           set -euo pipefail
-          if ! docker pull "${IMAGE}:latest"; then
-            echo "::warning::${IMAGE}:latest not found (is the package public?); building locally"
-            docker buildx build -f ${{ matrix.dockerfile }} -t "${IMAGE}:latest" --load .
+          if ! docker pull "${IMAGE}:${{ matrix.arch }}"; then
+            echo "::warning::${IMAGE}:${{ matrix.arch }} not found (is the package public?); building locally"
+            docker buildx build -f ${{ matrix.dockerfile }} -t "${IMAGE}:${{ matrix.arch }}" --load .
           fi
 
       # scratch image has no entrypoint, so give `docker create` one so it succeeds.
       - name: Extract ${{ matrix.libc }} artifacts
         run: |
           set -euo pipefail
-          CID=$(docker create --entrypoint=/ "${IMAGE}:latest")
+          CID=$(docker create --entrypoint=/ "${IMAGE}:${{ matrix.arch }}")
           trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
           mkdir -p "tests/binaries/host/${{ matrix.artifact_dir }}"
           docker cp "${CID}:/${{ matrix.artifact_dir }}/." "tests/binaries/host/${{ matrix.artifact_dir }}/"
@@ -221,8 +250,8 @@ jobs:
           echo "Verified ${{ matrix.libc }} artifacts for: ${versions}"
           if [ "${{ matrix.libc }}" = "glibc" ]; then
             for ver in ${versions}; do
-              if ! compgen -G "tests/binaries/host/glibcs-nodebug/${ver}/ld-linux-x86-64.so.2" >/dev/null; then
-                echo "ERROR: missing no-debug artifact glibcs-nodebug/${ver}/ld-linux-x86-64.so.2"
+              if ! compgen -G "tests/binaries/host/glibcs-nodebug/${ver}/${{ matrix.sentinel }}" >/dev/null; then
+                echo "ERROR: missing no-debug artifact glibcs-nodebug/${ver}/${{ matrix.sentinel }}"
                 exit 1
               fi
             done

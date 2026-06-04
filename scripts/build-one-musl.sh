@@ -18,6 +18,14 @@ set -euo pipefail
 
 VERSION="${1:?Usage: $0 <musl-version>}"
 
+# musl's loader symlink name is arch-specific; this script builds natively for the
+# host arch (the x86-64 or aarch64 CI runner).
+case "$(uname -m)" in
+    x86_64)  MUSL_LD="ld-musl-x86_64.so.1" ;;
+    aarch64) MUSL_LD="ld-musl-aarch64.so.1" ;;
+    *) echo "FATAL: unsupported arch $(uname -m)" >&2; exit 1 ;;
+esac
+
 SRC_DIR="/tmp/musl-src-${VERSION}"
 INSTALL_DIR="/opt/musl-${VERSION}"
 OUT_DIR="/musls/${VERSION}"
@@ -67,7 +75,7 @@ cp -a "${INSTALL_DIR}/lib/libc.a" "${OUT_DIR}/lib/"
 # itself, so no separate libc maps at runtime and pwndbg can't detect it.
 cp -a "${INSTALL_DIR}/lib/libc.so" "${OUT_DIR}/lib/"
 patchelf --set-soname libc.so "${OUT_DIR}/lib/libc.so"
-ln -sf "libc.so" "${OUT_DIR}/lib/ld-musl-x86_64.so.1"
+ln -sf "libc.so" "${OUT_DIR}/lib/${MUSL_LD}"
 cp -a "${INSTALL_DIR}/lib/"crt1.o "${INSTALL_DIR}/lib/"Scrt1.o \
       "${INSTALL_DIR}/lib/"crti.o "${INSTALL_DIR}/lib/"crtn.o "${OUT_DIR}/lib/"
 cp -a "${INSTALL_DIR}/include/." "${OUT_DIR}/include/"

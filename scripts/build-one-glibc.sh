@@ -12,6 +12,14 @@ set -euo pipefail
 
 VERSION="${1:?Usage: $0 <glibc-version>}"
 
+# The dynamic-linker name is arch-specific. This script builds natively for the host
+# arch (the x86-64 or aarch64 CI runner), so derive it from uname.
+case "$(uname -m)" in
+    x86_64)  GLIBC_LD="ld-linux-x86-64.so.2" ;;
+    aarch64) GLIBC_LD="ld-linux-aarch64.so.1" ;;
+    *) echo "FATAL: unsupported arch $(uname -m)" >&2; exit 1 ;;
+esac
+
 SRC_DIR="/tmp/glibc-src-${VERSION}"
 BUILD_DIR="/tmp/glibc-build-${VERSION}"
 INSTALL_DIR="/tmp/glibc-install-${VERSION}"
@@ -93,7 +101,7 @@ if [ -n "${LIBC_SO}" ]; then
 fi
 
 # Find ld-linux-x86-64.so.2 in install tree, then build tree as fallback
-LD_SO=$(find "${INSTALL_DIR}" -name "ld-linux-x86-64.so.2" 2>/dev/null | head -1)
+LD_SO=$(find "${INSTALL_DIR}" -name "${GLIBC_LD}" 2>/dev/null | head -1)
 if [ -z "${LD_SO}" ]; then
     # Try ld.so in the install tree (different name)
     LD_SO=$(find "${INSTALL_DIR}" -name "ld-${VERSION}.so" 2>/dev/null | head -1)
@@ -121,7 +129,7 @@ echo "Found ld: ${LD_SO}"
 
 # Copy the dynamic linker
 cp "${LD_SO}" "${OUT_DIR}/ld-${VERSION}.so"
-ln -sf "ld-${VERSION}.so" "${OUT_DIR}/ld-linux-x86-64.so.2"
+ln -sf "ld-${VERSION}.so" "${OUT_DIR}/${GLIBC_LD}"
 
 # Extract debug info from libc, then strip it
 cp "${LIBC_SO}" "${OUT_DIR}/.debug/libc-${VERSION}.so"
@@ -144,7 +152,7 @@ if [ "${GLIBC_BUILD_NODEBUG:-0}" = "1" ]; then
     ND_DIR="/glibcs-nodebug/${VERSION}"
     mkdir -p "${ND_DIR}"
     cp "${OUT_DIR}/ld-${VERSION}.so" "${ND_DIR}/ld-${VERSION}.so"
-    ln -sf "ld-${VERSION}.so" "${ND_DIR}/ld-linux-x86-64.so.2"
+    ln -sf "ld-${VERSION}.so" "${ND_DIR}/${GLIBC_LD}"
     cp "${OUT_DIR}/libc-${VERSION}.so" "${ND_DIR}/libc-${VERSION}.so"
     objcopy --remove-section=.gnu_debuglink --strip-all "${ND_DIR}/libc-${VERSION}.so"
     ln -sf "libc-${VERSION}.so" "${ND_DIR}/libc.so.6"

@@ -55,8 +55,8 @@ async def test_heap_version_detection(ctrl: Controller, glibc_ver: str) -> None:
     import pwndbg.aglib
     import pwndbg.libc
 
-    if pwndbg.aglib.arch.name != "x86-64":
-        pytest.skip("glibc version tests are x86-64 only")
+    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
+        pytest.skip("glibc version tests are x86-64/aarch64 only")
 
     assert pwndbg.libc.which() == pwndbg.libc.LibcType.GLIBC
     detected = pwndbg.libc.version()
@@ -79,8 +79,8 @@ async def test_heap_allocator_setup(ctrl: Controller, glibc_ver: str) -> None:
     import pwndbg.aglib.heap
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
-    if pwndbg.aglib.arch.name != "x86-64":
-        pytest.skip("glibc version tests are x86-64 only")
+    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
+        pytest.skip("glibc version tests are x86-64/aarch64 only")
 
     allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator), (
@@ -113,8 +113,8 @@ async def test_heap_bins_glibc_version(ctrl: Controller, glibc_ver: str) -> None
     await ctrl.disable_debuginfod()
     await ctrl.launch(binary)
 
-    if pwndbg.aglib.arch.name != "x86-64":
-        pytest.skip("glibc version tests are x86-64 only")
+    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
+        pytest.skip("glibc version tests are x86-64/aarch64 only")
 
     await ctrl.execute("set context-output /dev/null")
     await ctrl.execute("b breakpoint")
@@ -207,8 +207,8 @@ async def test_heap_malloc_chunk_glibc_version(ctrl: Controller, glibc_ver: str)
     await ctrl.disable_debuginfod()
     await launch_to(ctrl, binary, "break_here")
 
-    if pwndbg.aglib.arch.name != "x86-64":
-        pytest.skip("glibc version tests are x86-64 only")
+    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
+        pytest.skip("glibc version tests are x86-64/aarch64 only")
 
     allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
@@ -245,8 +245,8 @@ async def test_heap_heuristic_glibc_version(ctrl: Controller, glibc_ver: str, us
     await ctrl.disable_debuginfod()
     await ctrl.launch(binary)
 
-    if pwndbg.aglib.arch.name != "x86-64":
-        pytest.skip("glibc version tests are x86-64 only")
+    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
+        pytest.skip("glibc version tests are x86-64/aarch64 only")
 
     if use_heuristic:
         await ctrl.execute("set resolve-heap-via-heuristic force")
@@ -308,8 +308,8 @@ async def test_heap_heuristic_nodebug_glibc_version(
     await ctrl.disable_debuginfod()
     await ctrl.launch(binary)
 
-    if pwndbg.aglib.arch.name != "x86-64":
-        pytest.skip("glibc version tests are x86-64 only")
+    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
+        pytest.skip("glibc version tests are x86-64/aarch64 only")
 
     # Prove the libc symbols are genuinely gone; otherwise the heuristic would just read
     # main_arena by symbol and this test would be meaningless.
