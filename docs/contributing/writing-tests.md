@@ -143,7 +143,13 @@ To test architecture specific features, like disassembly annotations, we use emu
 
 ## Libc Version Testing
 
-`tests/library/dbg/tests/test_heap_glibc_versions.py`, `test_musl_versions.py`, and `test_bionic_versions.py` exercise pwndbg's libc detection (and, for glibc, the heap commands) against many libc versions. The per-version / per-API libc artifacts are built from source into small `ghcr.io` "scratch" images (one per libc: `Dockerfile.{glibc,musl,bionic}-test-libs`) that CI pulls, rebuilding only when an image-defining file changes. See [`.github/workflows/heap-libc-tests.yml`](https://github.com/pwndbg/pwndbg/blob/dev/.github/workflows/heap-libc-tests.yml).
+`tests/library/dbg/tests/test_heap_glibc_versions.py`, `test_musl_versions.py`, and `test_bionic_versions.py` exercise pwndbg against many libc versions and Android API levels. The per-version artifacts are built from source into small `ghcr.io` "scratch" images (one per libc: `Dockerfile.{glibc,musl,bionic}-test-libs`) that CI pulls, rebuilding only when an image-defining file changes. See [`.github/workflows/heap-libc-tests.yml`](https://github.com/pwndbg/pwndbg/blob/dev/.github/workflows/heap-libc-tests.yml).
+
+Where possible we avoid bespoke per-version tests and instead run the existing deep tests across the whole matrix by parametrizing their test binary over it (the `glibc_version_binaries()` / `bionic_api_binaries()` helpers in `tests/library/dbg/tests/__init__.py`, filtered to binaries present on disk, plus a regex in each job's `test_filter`). Concretely:
+
+- **glibc** (2.35-2.43): version detection; the heap allocator, bins and `malloc-chunk` on both the debug-symbol and forced-heuristic paths; `find-fake-fast`; `dt` on `tcache_perthread_struct`; and a genuine no-symbol heuristic run against a stripped `glibcs-nodebug/<ver>/` libc (no debug info and no `.gnu_debuglink`, so pwndbg must scan for `main_arena` and read the version from the `.rodata` banner).
+- **musl** (1.1.24-1.2.6): detection plus exact version, statically (where the mallocng fingerprint exists) and dynamically, and the full `test_mallocng.py` suite run across every version.
+- **bionic** (API 21/26/30/34): the static Android binary runs under gdb, its `.note.android.ident` API matches, `pwndbg.libc.which()` is `UNKNOWN` (there is no bionic provider yet), the libc-agnostic commands (`vmmap`, `nearpc`, `telescope`, `backtrace`) work, and the heap commands degrade gracefully.
 
 **Adding or removing a version is a one-line change:** edit only the `FROM base-builder AS build-<ver>` stages in the relevant `Dockerfile.*-test-libs`. The makefile, the `scripts/download-test-*.sh` scripts, and the tests all re-parse that single list.
 
@@ -151,11 +157,12 @@ To test architecture specific features, like disassembly annotations, we use emu
 
 ```bash
 ./scripts/download-test-glibcs.sh    # or download-test-musls.sh / download-test-bionics.sh
-make -C tests/binaries/host -j4 all  # glibc/musl only; bionic ships prebuilt binaries
+make -C tests/binaries/host -j4 all  # glibc/musl compile per-version binaries; bionic ships prebuilt
 ./tests.sh -d gdb -g dbg test_musl_versions
 ```
 
 **Caveats:**
 
-- **musl**: its allocator fingerprint (mallocng) only exists since 1.2.1, so older versions (e.g. 1.1.24) are tested dynamically only. The dynamic binaries emit a `.interp` section explicitly because the pinned `zig` silently drops `-Wl,--dynamic-linker` for `-nostdlib` links.
-- **bionic**: there is no pwndbg bionic provider yet, so its test only checks that a static Android binary runs under gdb and matches its `.note.android.ident` API level, not `which()`. The binaries are prebuilt inside the image because the NDK clang isn't in the test container.
+- **musl**: the mallocng fingerprint only exists since 1.2.1, so older versions (e.g. 1.1.24) are tested dynamically only. The dynamic binaries emit a `.interp` section explicitly because the pinned `zig` silently drops `-Wl,--dynamic-linker` for `-nostdlib` links.
+- **bionic**: there is no pwndbg bionic provider, so detection asserts `UNKNOWN` rather than a real type, and heap commands are only checked for graceful degradation (bionic uses scudo). Binaries are prebuilt inside the image because the NDK clang is not in the test container.
+- **glibc no-symbol heuristic**: the `2.42` case is currently `xfail` because pwndbg's heuristic does not recover `main_arena` on a stripped 2.42 libc; the other versions pass, so this documents a real pwndbg gap rather than a harness issue.
