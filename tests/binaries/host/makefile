@@ -18,11 +18,16 @@ endif
 # target triple differ. LIBC_VER_ARCH_OK gates the glibc/musl version targets.
 ifeq ($(HOST_ARCH),x86-64)
     LIBC_VER_ARCH_OK := yes
+    MUSL_DYNAMIC_OK  := yes
     GLIBC_LD_NAME    := ld-linux-x86-64.so.2
     MUSL_LD_NAME     := ld-musl-x86_64.so.1
     ZIG_LIBC_TARGET  := x86_64-linux-gnu
 else ifeq ($(HOST_ARCH),aarch64)
     LIBC_VER_ARCH_OK := yes
+    # The hand-built zig + crt + .interp dynamic musl link is x86-64-tuned; those
+    # binaries fail to launch under gdb on aarch64. Static musl (self-contained)
+    # still covers mallocng on arm, so build dynamic musl x86-64 only.
+    MUSL_DYNAMIC_OK  := no
     GLIBC_LD_NAME    := ld-linux-aarch64.so.1
     MUSL_LD_NAME     := ld-musl-aarch64.so.1
     ZIG_LIBC_TARGET  := aarch64-linux-gnu
@@ -208,13 +213,19 @@ endef
 $(foreach bin,$(MUSL_HEAP_BINARIES),\
     $(foreach ver,$(MUSL_STATIC_VERSIONS),\
         $(eval $(call MUSL_HEAP_STATIC_TARGET,$(bin),$(ver)))))
+
+ALL_MUSL_VERSION_TARGETS := $(foreach bin,$(MUSL_HEAP_BINARIES),\
+    $(foreach ver,$(MUSL_STATIC_VERSIONS),$(bin).musl-$(ver)-static.out))
+
+# Dynamic musl binaries are x86-64 only (see MUSL_DYNAMIC_OK above); on aarch64 the
+# tests skip the missing dynamic binaries and run the static ones.
+ifeq ($(MUSL_DYNAMIC_OK),yes)
 $(foreach bin,$(MUSL_HEAP_BINARIES),\
     $(foreach ver,$(AVAILABLE_MUSL_VERSIONS),\
         $(eval $(call MUSL_HEAP_DYNAMIC_TARGET,$(bin),$(ver)))))
-
-ALL_MUSL_VERSION_TARGETS := $(foreach bin,$(MUSL_HEAP_BINARIES),\
-    $(foreach ver,$(MUSL_STATIC_VERSIONS),$(bin).musl-$(ver)-static.out)\
+ALL_MUSL_VERSION_TARGETS += $(foreach bin,$(MUSL_HEAP_BINARIES),\
     $(foreach ver,$(AVAILABLE_MUSL_VERSIONS),$(bin).musl-$(ver)-dynamic.out))
+endif
 else
 ALL_MUSL_VERSION_TARGETS :=
 endif
