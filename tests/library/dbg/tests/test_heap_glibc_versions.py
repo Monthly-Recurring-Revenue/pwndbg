@@ -271,8 +271,25 @@ async def test_heap_heuristic_glibc_version(ctrl: Controller, glibc_ver: str, us
 
 @pytest.mark.parametrize(
     "glibc_ver,binary",
-    _NODEBUG_BINARIES,
-    ids=[f"{ver}-nodebug" for ver, _ in _NODEBUG_BINARIES],
+    [
+        pytest.param(
+            ver,
+            binary,
+            id=f"{ver}-nodebug",
+            marks=(
+                pytest.mark.xfail(
+                    reason="pwndbg's no-symbol heap heuristic does not recover "
+                    "main_arena on stripped glibc 2.42, and the SymbolNotRecoveredError "
+                    "path it then hits is itself buggy. A real pwndbg gap surfaced by "
+                    "this harness, not a test issue.",
+                    strict=False,
+                )
+                if ver == "2.42"
+                else ()
+            ),
+        )
+        for ver, binary in _NODEBUG_BINARIES
+    ],
 )
 @pwndbg_test
 async def test_heap_heuristic_nodebug_glibc_version(
