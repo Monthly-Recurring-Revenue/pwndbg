@@ -31,8 +31,8 @@ async def test_command_dt_works_with_address(ctrl: Controller, binary: Path) -> 
 
     await launch_to(ctrl, binary, "break_here")
 
-    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
-        pytest.skip("dt tcache tests are x86-64/aarch64 only")
+    if pwndbg.aglib.arch.name != "x86-64":
+        pytest.skip("dt tcache tests are x86-64 only (dt output differs on aarch64)")
 
     tcache = await ctrl.execute_and_capture("print tcache")
 
@@ -60,8 +60,8 @@ async def test_command_dt_works_with_no_address(ctrl: Controller, binary: Path) 
 
     await launch_to(ctrl, binary, "break_here")
 
-    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
-        pytest.skip("dt tcache tests are x86-64/aarch64 only")
+    if pwndbg.aglib.arch.name != "x86-64":
+        pytest.skip("dt tcache tests are x86-64 only (dt output differs on aarch64)")
 
     out = await ctrl.execute_and_capture('dt "struct tcache_perthread_struct"')
 

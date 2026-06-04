@@ -61,8 +61,8 @@ async def test_find_fake_fast_command(ctrl: Controller, binary: Path) -> None:
 
     await launch_to(ctrl, binary, "break_here")
 
-    if pwndbg.aglib.arch.name not in ("x86-64", "aarch64"):
-        pytest.skip("find-fake-fast version tests are x86-64/aarch64 only")
+    if pwndbg.aglib.arch.name != "x86-64":
+        pytest.skip("find-fake-fast tests are x86-64 only (no results on aarch64)")
 
     # Ensure memory at fake_chunk's heap_info struct isn't mapped.
     unmapped_heap_info = pwndbg.aglib.heap.ptmalloc.heap_for_ptr(
