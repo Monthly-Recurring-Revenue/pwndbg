@@ -38,12 +38,24 @@ DELAY=$((RANDOM % 10))
 echo "[1/5] Downloading musl-${VERSION} (delay ${DELAY}s)..."
 sleep "${DELAY}"
 TARBALL="/tmp/musl-${VERSION}.tar.gz"
-URL="https://musl.libc.org/releases/musl-${VERSION}.tar.gz"
-MIRROR="https://git.musl-libc.org/cgit/musl/snapshot/v${VERSION}.tar.gz"
-if ! wget -q --retry-connrefused --waitretry=10 --tries=3 --timeout=60 "${URL}" -O "${TARBALL}"; then
-    echo "Primary download failed, trying mirror..."
-    wget -q --retry-connrefused --waitretry=10 --tries=3 --timeout=60 "${MIRROR}" -O "${TARBALL}"
-fi
+# Release tarball only: the git-snapshot is a different archive whose hash would not
+# match the pinned one, so retry the release rather than fall back to it.
+wget -q --retry-connrefused --retry-on-host-error --waitretry=15 --tries=5 --timeout=60 \
+    "https://musl.libc.org/releases/musl-${VERSION}.tar.gz" -O "${TARBALL}"
+
+# Verify the download against the known-good sha256 (from musl.libc.org). Bump
+# alongside the version list in Dockerfile.musl-test-libs.
+case "${VERSION}" in
+    1.1.24) SHA256=1370c9a812b2cf2a7d92802510cca0058cc37e66a7bedd70051f0a34015022a3 ;;
+    1.2.1) SHA256=68af6e18539f646f9c41a3a2bb25be4a5cfa5a8f65f0bb647fd2bbfdf877e84b ;;
+    1.2.3) SHA256=7d5b0b6062521e4627e099e4c9dc8248d32a30285e959b7eecaa780cf8cfd4a4 ;;
+    1.2.4) SHA256=7a35eae33d5372a7c0da1188de798726f68825513b7ae3ebe97aaaa52114f039 ;;
+    1.2.5) SHA256=a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4 ;;
+    1.2.6) SHA256=d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a ;;
+    *) echo "FATAL: no known sha256 for musl ${VERSION}; add it to build-one-musl.sh"; exit 1 ;;
+esac
+echo "${SHA256}  ${TARBALL}" | sha256sum -c - || { echo "FATAL: musl ${VERSION} sha256 mismatch"; exit 1; }
+
 mkdir -p "${SRC_DIR}"
 tar xf "${TARBALL}" -C "${SRC_DIR}" --strip-components=1
 

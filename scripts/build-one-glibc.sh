@@ -52,6 +52,24 @@ for url in "${MIRRORS[@]}"; do
     echo "  mirror failed, trying next..."
 done
 [ -n "${downloaded}" ] || { echo "ERROR: all glibc ${VERSION} mirrors failed"; exit 4; }
+
+# Verify the download against the known-good sha256 (computed from the official GNU
+# sources; all mirrors serve the same release tarball). Bump alongside the version
+# list in Dockerfile.glibc-test-libs.
+case "${VERSION}" in
+    2.35) SHA256=3e8e0c6195da8dfbd31d77c56fb8d99576fb855fafd47a9e0a895e51fd5942d4 ;;
+    2.36) SHA256=02efa6ffbbaf3e10e88f16818a862608d04b0ef838c66f6025ae120530792c9c ;;
+    2.37) SHA256=811f19f9200118ff94ede28a6e12307584152cdcbf3d366cd729ea2f855db255 ;;
+    2.38) SHA256=16e51e0455e288f03380b436e41d5927c60945abd86d0c9852b84be57dd6ed5e ;;
+    2.39) SHA256=97f84f3b7588cd54093a6f6389b0c1a81e70d99708d74963a2e3eab7c7dc942d ;;
+    2.40) SHA256=2abc038f5022949cb67e996c3cae0e7764f99b009f0b9b7fd954dfc6577b599e ;;
+    2.41) SHA256=c7be6e25eeaf4b956f5d4d56a04d23e4db453fc07760f872903bb61a49519b80 ;;
+    2.42) SHA256=d4468d3e3267068c1b0623ca6424aac9a28766df774c8d8fb4978127fca7125a ;;
+    2.43) SHA256=e1e622cbd635019090fa23260e5d9ec219b12f97ae7ae02f033d4ae42cf2c004 ;;
+    *) echo "FATAL: no known sha256 for glibc ${VERSION}; add it to build-one-glibc.sh"; exit 1 ;;
+esac
+echo "${SHA256}  ${TARBALL}" | sha256sum -c - || { echo "FATAL: glibc ${VERSION} sha256 mismatch"; exit 1; }
+
 mkdir -p "${SRC_DIR}"
 tar xf "${TARBALL}" -C "${SRC_DIR}" --strip-components=1
 
