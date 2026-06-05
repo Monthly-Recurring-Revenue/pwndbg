@@ -151,6 +151,8 @@ Where possible we avoid bespoke per-version tests and instead run the existing d
 - **musl** (1.1.24-1.2.6): detection plus exact version, statically (where the mallocng fingerprint exists) and dynamically, and the full `test_mallocng.py` suite run across every version.
 - **bionic** (API 21/26/30/34): the static Android binary runs under gdb, its `.note.android.ident` API matches, `pwndbg.libc.which()` is `UNKNOWN` (there is no bionic provider yet), the libc-agnostic commands (`vmmap`, `nearpc`, `telescope`, `backtrace`) work, and the heap commands degrade gracefully.
 
+**Architectures:** glibc and musl run on both **x86-64 and aarch64** (the aarch64 jobs use native `ubuntu-24.04-arm` runners, no emulation, so the libcs build and the tests run natively). The `arch` matrix dimension selects the runner and the per-arch loader name; both are 64-bit so the heap assertions are identical. bionic is x86-64 only (the Android NDK ships an x86_64-host compiler only).
+
 **Adding or removing a version is a one-line change:** edit only the `FROM base-builder AS build-<ver>` stages in the relevant `Dockerfile.*-test-libs`. The makefile, the `scripts/download-test-*.sh` scripts, and the tests all re-parse that single list.
 
 **Running locally** (needs Docker):
@@ -165,4 +167,5 @@ make -C tests/binaries/host -j4 all  # glibc/musl compile per-version binaries; 
 
 - **musl**: the mallocng fingerprint only exists since 1.2.1, so older versions (e.g. 1.1.24) are tested dynamically only. The dynamic binaries emit a `.interp` section explicitly because the pinned `zig` silently drops `-Wl,--dynamic-linker` for `-nostdlib` links.
 - **bionic**: there is no pwndbg bionic provider, so detection asserts `UNKNOWN` rather than a real type, and heap commands are only checked for graceful degradation (bionic uses scudo). Binaries are prebuilt inside the image because the NDK clang is not in the test container.
+- **aarch64**: musl's *dynamic* binaries and the `dt` / `find-fake-fast` tests are x86-64 only. The hand-built dynamic-musl link (`zig` + crt + `.interp`) is x86-64-tuned and those binaries fail to launch on arm, so static musl (which still exercises mallocng) covers aarch64; `dt` and `find-fake-fast` produce arch-specific output the x86-64 expectations do not match on arm.
 - **glibc no-symbol heuristic**: the `2.42` case is currently `xfail` because pwndbg's heuristic does not recover `main_arena` on a stripped 2.42 libc; the other versions pass, so this documents a real pwndbg gap rather than a harness issue.
