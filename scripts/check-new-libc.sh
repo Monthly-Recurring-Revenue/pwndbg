@@ -30,10 +30,12 @@ latest_glibc() {
 }
 
 latest_musl() {
-    # musl.libc.org/releases/ has no directory index, so use the git tag list.
-    fetch https://git.musl-libc.org/cgit/musl/refs/tags \
-        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' \
-        | sed -E 's/^v//' | sort -V | tail -1
+    # musl.libc.org/releases/ has no directory index, so parse the homepage, which
+    # links the current release tarball. Matching musl-X.Y.Z.tar.gz picks only real
+    # releases (no rc/pre-release git tags).
+    fetch https://musl.libc.org/ \
+        | grep -oiE 'musl-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' \
+        | sed -E 's/^musl-([0-9.]+)\.tar\.gz$/\1/' | sort -V | tail -1
 }
 
 # Is $1 strictly newer than $2 by version sort?

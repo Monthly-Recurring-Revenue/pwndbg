@@ -57,6 +57,12 @@ jobs:
       - name: Add the canary glibc version to the Dockerfile
         run: ./scripts/add-canary-version.sh glibc "${VERSION}"
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Log in to GHCR (to read the build cache)
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build glibc image (canary version + cached pinned versions)
         run: |
           set -euo pipefail
@@ -93,6 +99,12 @@ jobs:
       - name: Add the canary musl version to the Dockerfile
         run: ./scripts/add-canary-version.sh musl "${VERSION}"
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Log in to GHCR (to read the build cache)
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build musl image (canary version + cached pinned versions)
         run: |
           set -euo pipefail
