@@ -329,6 +329,13 @@ async def test_malloc_chunk_command_heuristic(ctrl: Controller, binary: Path) ->
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
+    assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
+
+    await ctrl.execute("set resolve-heap-via-heuristic force")
+    break_at_sym("break_here")
+    await ctrl.cont()
+
+    # Detect the version only after running to break_here, where libc is loaded.
     import pwndbg.libc
 
     if pwndbg.libc.version() >= (2, 43):
@@ -336,12 +343,6 @@ async def test_malloc_chunk_command_heuristic(ctrl: Controller, binary: Path) ->
             "glibc 2.43 reworked bin placement; this strict per-bin test targets "
             "pre-2.43 (test_heap_glibc_versions covers 2.43)"
         )
-
-    assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
-
-    await ctrl.execute("set resolve-heap-via-heuristic force")
-    break_at_sym("break_here")
-    await ctrl.cont()
 
     chunks = {}
     results = {}
