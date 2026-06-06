@@ -14,12 +14,35 @@ from . import pwndbg_test
 # (built by the heap-libc-tests workflow); a normal run has only the system binary.
 _BINS_BINARIES = glibc_version_binaries("heap_bins")
 
-glibc_versions = pytest.mark.parametrize(
-    "binary", [b for _, b in _BINS_BINARIES], ids=[i for i, _ in _BINS_BINARIES]
-)
+# glibc 2.43 removed fastbins; the bins walk below asserts a fastbin is present, so
+# xfail it on 2.43 (the version-aware test_heap_glibc_versions still covers 2.43 bins).
+_FASTBINS_GONE = "glibc 2.43 removed fastbins; this upstream test asserts one exists"
 
 
-@glibc_versions
+def _glibc_params(xfails=None):
+    xfails = xfails or {}
+    return pytest.mark.parametrize(
+        "binary",
+        [
+            pytest.param(
+                b,
+                id=ident,
+                marks=(
+                    [pytest.mark.xfail(reason=xfails[ident], strict=False)]
+                    if ident in xfails
+                    else []
+                ),
+            )
+            for ident, b in _BINS_BINARIES
+        ],
+    )
+
+
+glibc_versions = _glibc_params()
+glibc_versions_no_fastbins = _glibc_params({"2.43": _FASTBINS_GONE})
+
+
+@glibc_versions_no_fastbins
 @pwndbg_test
 async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     """
