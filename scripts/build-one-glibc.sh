@@ -66,7 +66,19 @@ case "${VERSION}" in
     2.41) SHA256=c7be6e25eeaf4b956f5d4d56a04d23e4db453fc07760f872903bb61a49519b80 ;;
     2.42) SHA256=d4468d3e3267068c1b0623ca6424aac9a28766df774c8d8fb4978127fca7125a ;;
     2.43) SHA256=e1e622cbd635019090fa23260e5d9ec219b12f97ae7ae02f033d4ae42cf2c004 ;;
-    *) echo "FATAL: no known sha256 for glibc ${VERSION}; add it to build-one-glibc.sh"; exit 1 ;;
+    *)
+        if [ "${GLIBC_CANARY:-0}" = "1" ]; then
+            # Canary mode: this version is not pinned yet. Trust the official source on
+            # first use, compute the checksum, and print the line to pin it when the
+            # version is added for real.
+            SHA256=$(sha256sum "${TARBALL}" | cut -c1-64)
+            echo "CANARY: glibc ${VERSION} is unpinned; computed sha256 ${SHA256}"
+            echo "CANARY: to pin it, add '    ${VERSION}) SHA256=${SHA256} ;;' to build-one-glibc.sh"
+        else
+            echo "FATAL: no known sha256 for glibc ${VERSION}; add it to build-one-glibc.sh"
+            exit 1
+        fi
+        ;;
 esac
 echo "${SHA256}  ${TARBALL}" | sha256sum -c - || { echo "FATAL: glibc ${VERSION} sha256 mismatch"; exit 1; }
 

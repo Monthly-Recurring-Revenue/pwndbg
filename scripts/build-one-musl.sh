@@ -52,7 +52,19 @@ case "${VERSION}" in
     1.2.4) SHA256=7a35eae33d5372a7c0da1188de798726f68825513b7ae3ebe97aaaa52114f039 ;;
     1.2.5) SHA256=a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4 ;;
     1.2.6) SHA256=d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a ;;
-    *) echo "FATAL: no known sha256 for musl ${VERSION}; add it to build-one-musl.sh"; exit 1 ;;
+    *)
+        if [ "${MUSL_CANARY:-0}" = "1" ]; then
+            # Canary mode: this version is not pinned yet. Trust the official source on
+            # first use, compute the checksum, and print the line to pin it when the
+            # version is added for real.
+            SHA256=$(sha256sum "${TARBALL}" | cut -c1-64)
+            echo "CANARY: musl ${VERSION} is unpinned; computed sha256 ${SHA256}"
+            echo "CANARY: to pin it, add '    ${VERSION}) SHA256=${SHA256} ;;' to build-one-musl.sh"
+        else
+            echo "FATAL: no known sha256 for musl ${VERSION}; add it to build-one-musl.sh"
+            exit 1
+        fi
+        ;;
 esac
 echo "${SHA256}  ${TARBALL}" | sha256sum -c - || { echo "FATAL: musl ${VERSION} sha256 mismatch"; exit 1; }
 
