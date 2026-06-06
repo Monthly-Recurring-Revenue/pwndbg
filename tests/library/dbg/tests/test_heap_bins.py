@@ -14,35 +14,12 @@ from . import pwndbg_test
 # (built by the heap-libc-tests workflow); a normal run has only the system binary.
 _BINS_BINARIES = glibc_version_binaries("heap_bins")
 
-# glibc 2.43 removed fastbins; the bins walk below asserts a fastbin is present, so
-# xfail it on 2.43 (the version-aware test_heap_glibc_versions still covers 2.43 bins).
-_FASTBINS_GONE = "glibc 2.43 removed fastbins; this upstream test asserts one exists"
+glibc_versions = pytest.mark.parametrize(
+    "binary", [b for _, b in _BINS_BINARIES], ids=[i for i, _ in _BINS_BINARIES]
+)
 
 
-def _glibc_params(xfails=None):
-    xfails = xfails or {}
-    return pytest.mark.parametrize(
-        "binary",
-        [
-            pytest.param(
-                b,
-                id=ident,
-                marks=(
-                    [pytest.mark.xfail(reason=xfails[ident], strict=False)]
-                    if ident in xfails
-                    else []
-                ),
-            )
-            for ident, b in _BINS_BINARIES
-        ],
-    )
-
-
-glibc_versions = _glibc_params()
-glibc_versions_no_fastbins = _glibc_params({"2.43": _FASTBINS_GONE})
-
-
-@glibc_versions_no_fastbins
+@glibc_versions
 @pwndbg_test
 async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     """
@@ -66,6 +43,10 @@ async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     # check if all bins are empty at first
     allocator = pwndbg.aglib.heap.current
     assert allocator is not None
+
+    import pwndbg.libc
+
+    ver = pwndbg.libc.version()
 
     addr = pwndbg.aglib.symbol.lookup_symbol_addr("tcache_size")
     assert addr is not None
@@ -99,10 +80,14 @@ async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     assert result.bins[tcache_size].bk_chain is None and len(result.bins[tcache_size].fd_chain) == 1
 
     result = allocator.fastbins()
-    assert result is not None
-    assert result.bin_type == BinType.FAST
-    assert fastbin_size in result.bins
-    assert len(result.bins[fastbin_size].fd_chain) == 1
+    if ver >= (2, 43):
+        # glibc 2.43 removed fastbins; fastbins() returns None by design.
+        assert result is None
+    else:
+        assert result is not None
+        assert result.bin_type == BinType.FAST
+        assert fastbin_size in result.bins
+        assert len(result.bins[fastbin_size].fd_chain) == 1
 
     result = allocator.unsortedbin()
     assert result is not None
@@ -149,13 +134,14 @@ async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     await ctrl.cont()
 
     result = allocator.fastbins()
-    assert result is not None
-    assert result.bin_type == BinType.FAST
-    assert (fastbin_size in result.bins) and (
-        len(result.bins[fastbin_size].fd_chain) == fastbin_count + 1
-    )
-    for addr in result.bins[fastbin_size].fd_chain[:-1]:
-        assert pwndbg.aglib.vmmap.find(addr)
+    if ver < (2, 43):
+        assert result is not None
+        assert result.bin_type == BinType.FAST
+        assert (fastbin_size in result.bins) and (
+            len(result.bins[fastbin_size].fd_chain) == fastbin_count + 1
+        )
+        for addr in result.bins[fastbin_size].fd_chain[:-1]:
+            assert pwndbg.aglib.vmmap.find(addr)
 
     # check unsortedbin
     await ctrl.cont()

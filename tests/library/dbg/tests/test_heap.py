@@ -19,11 +19,10 @@ from . import pwndbg_test
 _HEAP_BINARIES = glibc_version_binaries("heap_malloc_chunk")
 _HEAP_DUMP_BINARIES = glibc_version_binaries("heap_malloc_chunk_dump")
 
-# Real per-version differences surfaced by running the suite across every glibc:
-# 2.43 removed fastbins, so tests that assume a fastbin exists fail on it; and
-# pwndbg's heuristic still cannot recover mp_ from a 2.42 libc. xfail exactly those
-# (version, test) cells so the suite stays green while recording the differences.
-_FASTBINS_GONE = "glibc 2.43 removed fastbins; this upstream test assumes one exists"
+# Running the real suite across every glibc surfaced one genuine pwndbg gap: its
+# heuristic still cannot recover mp_ from a 2.42 libc, so xfail exactly that cell.
+# The glibc 2.43 fastbins-removal differences are handled in the tests themselves
+# (pwndbg itself is already correct on 2.43), not xfailed.
 _MP_HEURISTIC_242 = "pwndbg heuristic cannot find mp_ in the .data section on glibc 2.42"
 
 
@@ -48,7 +47,6 @@ def _glibc_params(binaries, xfails=None):
 
 glibc_versions = _glibc_params(_HEAP_BINARIES)
 glibc_dump_versions = _glibc_params(_HEAP_DUMP_BINARIES)
-glibc_versions_no_fastbins = _glibc_params(_HEAP_BINARIES, {"2.43": _FASTBINS_GONE})
 glibc_versions_mp = _glibc_params(_HEAP_BINARIES, {"2.42": _MP_HEURISTIC_242})
 
 ADDR_RE = re.compile(r"^Addr: (0x[0-9a-f]+)$")
@@ -65,6 +63,7 @@ def extract_chunk_addrs(output: str) -> list[int]:
 
 def generate_expected_malloc_chunk_output(chunks: dict[str, Any]) -> dict[str, Any]:
     import pwndbg.aglib.heap
+    import pwndbg.libc
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
@@ -116,8 +115,10 @@ def generate_expected_malloc_chunk_output(chunks: dict[str, Any]) -> dict[str, A
         ]
     )
     real_size = size & (0xFFFFFFFFFFFFFFF - 0b111)
+    # glibc 2.43 removed fastbins, so a freed fastbin-sized chunk now lands in tcache.
+    fast_label = "tcachebins" if pwndbg.libc.version() >= (2, 43) else "fastbins"
     expected["fast"] = [
-        "Free chunk (fastbins) | PREV_INUSE",
+        f"Free chunk ({fast_label}) | PREV_INUSE",
         f"Addr: {int(chunks['fast'].address):#x}",
         f"Size: 0x{real_size:02x} (with flag bits: 0x{size:02x})",
         f"fd: 0x{int(chunks['fast']['fd']):02x}",
@@ -243,7 +244,7 @@ async def test_heap_command_range_and_count(ctrl: Controller, binary: Path) -> N
     assert "`addr_end` must be greater than `addr_start`." in invalid_range_output
 
 
-@glibc_versions_no_fastbins
+@glibc_versions
 @pwndbg_test
 async def test_malloc_chunk_command(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
@@ -317,7 +318,7 @@ async def test_malloc_chunk_command(ctrl: Controller, binary: Path) -> None:
     assert results["large"] == expected["large"]
 
 
-@glibc_versions_no_fastbins
+@glibc_versions
 @pwndbg_test
 async def test_malloc_chunk_command_heuristic(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
@@ -686,7 +687,7 @@ async def test_thread_arena_heuristic(
         assert pwndbg.aglib.heap.current.thread_arena.address == thread_arena_via_debug_symbol
 
 
-@glibc_versions_no_fastbins
+@glibc_versions
 @pwndbg_test
 async def test_global_max_fast_heuristic(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
@@ -705,6 +706,12 @@ async def test_global_max_fast_heuristic(ctrl: Controller, binary: Path) -> None
     await ctrl.execute("set resolve-heap-via-heuristic force")
     break_at_sym("break_here")
     await ctrl.cont()
+
+    import pwndbg.libc
+
+    # glibc 2.43 removed fastbins, so there is no global_max_fast symbol to recover.
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip("glibc 2.43 removed global_max_fast (fastbins removed)")
 
     # Use the debug symbol to find the address of `global_max_fast`
     global_max_fast_addr_via_debug_symbol = pwndbg.aglib.symbol.lookup_symbol_addr(
