@@ -10,8 +10,7 @@ from . import glibc_version_binaries
 from . import launch_to
 from . import pwndbg_test
 
-# Run the bins tests against the system glibc AND each prebuilt per-version glibc
-# (built by the heap-libc-tests workflow); a normal run has only the system binary.
+# Run each test against the system glibc plus every prebuilt per-version glibc.
 _BINS_BINARIES = glibc_version_binaries("heap_bins")
 
 glibc_versions = pytest.mark.parametrize(

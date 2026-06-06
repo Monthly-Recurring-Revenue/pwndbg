@@ -12,17 +12,11 @@ from . import glibc_version_binaries
 from . import launch_to
 from . import pwndbg_test
 
-# Run every heap test below against the container's system glibc AND each prebuilt
-# per-version glibc (built by the heap-libc-tests workflow), so the real suite
-# exercises all supported versions, not just whichever libc the base image ships.
-# A normal run has only the system binary, so it behaves exactly as before.
+# Run each test against the system glibc plus every prebuilt per-version glibc.
 _HEAP_BINARIES = glibc_version_binaries("heap_malloc_chunk")
 _HEAP_DUMP_BINARIES = glibc_version_binaries("heap_malloc_chunk_dump")
 
-# Running the real suite across every glibc surfaced one genuine pwndbg gap: its
-# heuristic still cannot recover mp_ from a 2.42 libc, so xfail exactly that cell.
-# The glibc 2.43 fastbins-removal differences are handled in the tests themselves
-# (pwndbg itself is already correct on 2.43), not xfailed.
+# Known pwndbg bug: the heuristic cannot find mp_ on a glibc 2.42 libc.
 _MP_HEURISTIC_242 = "pwndbg heuristic cannot find mp_ in the .data section on glibc 2.42"
 
 
