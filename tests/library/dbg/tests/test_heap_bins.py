@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from ....host import Controller
 from . import get_binary
+from . import glibc_version_binaries
 from . import launch_to
 from . import pwndbg_test
 
-BINARY = get_binary("heap_bins.native.out")
+# Run the bins tests against the system glibc AND each prebuilt per-version glibc
+# (built by the heap-libc-tests workflow); a normal run has only the system binary.
+_BINS_BINARIES = glibc_version_binaries("heap_bins")
+
+glibc_versions = pytest.mark.parametrize(
+    "binary", [b for _, b in _BINS_BINARIES], ids=[i for i, _ in _BINS_BINARIES]
+)
 
 
+@glibc_versions
 @pwndbg_test
-async def test_heap_bins(ctrl: Controller) -> None:
+async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     """
     Tests pwndbg.aglib.heap bins commands
     """
@@ -21,7 +33,7 @@ async def test_heap_bins(ctrl: Controller) -> None:
     from pwndbg.aglib.heap.ptmalloc import BinType
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
-    await ctrl.launch(BINARY)
+    await ctrl.launch(binary)
     await ctrl.execute("set context-output /dev/null")
     await ctrl.execute("b breakpoint")
     await ctrl.cont()
@@ -514,8 +526,9 @@ async def test_smallbins_sizes_32bit_big(ctrl: Controller) -> None:
         assert bin_size.split(":")[0] == expected[bin_index]
 
 
+@glibc_versions
 @pwndbg_test
-async def test_heap_corruption_low_dereference(ctrl: Controller) -> None:
+async def test_heap_corruption_low_dereference(ctrl: Controller, binary: Path) -> None:
     """
     Tests that the bins corruption check doesn't report
     corrupted bins when heap-dereference-limit is less
@@ -523,7 +536,7 @@ async def test_heap_corruption_low_dereference(ctrl: Controller) -> None:
     """
 
     await ctrl.execute("set context-output /dev/null")
-    await launch_to(ctrl, BINARY, "breakpoint")
+    await launch_to(ctrl, binary, "breakpoint")
 
     await ctrl.cont()
     await ctrl.cont()

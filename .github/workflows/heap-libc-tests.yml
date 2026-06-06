@@ -101,7 +101,7 @@ jobs:
             artifact_dir: glibcs
             sentinel: ld-linux-x86-64.so.2
             build_binaries: true
-            test_filter: "test_heap_glibc_versions|test_find_fake_fast|test_command_dt"
+            test_filter: "test_heap|test_find_fake_fast|test_command_dt"
           - libc: glibc
             arch: aarch64
             runs_on: ubuntu-24.04-arm
@@ -110,7 +110,7 @@ jobs:
             artifact_dir: glibcs
             sentinel: ld-linux-aarch64.so.1
             build_binaries: true
-            test_filter: "test_heap_glibc_versions|test_find_fake_fast|test_command_dt"
+            test_filter: "test_heap|test_find_fake_fast|test_command_dt"
           - libc: musl
             arch: x86-64
             runs_on: ubuntu-latest

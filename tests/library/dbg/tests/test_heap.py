@@ -1,18 +1,30 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ....host import Controller
 from . import break_at_sym
-from . import get_binary
+from . import glibc_version_binaries
 from . import launch_to
 from . import pwndbg_test
 
-HEAP_MALLOC_CHUNK = get_binary("heap_malloc_chunk.native.out")
-HEAP_MALLOC_CHUNK_DUMP = get_binary("heap_malloc_chunk_dump.native.out")
+# Run every heap test below against the container's system glibc AND each prebuilt
+# per-version glibc (built by the heap-libc-tests workflow), so the real suite
+# exercises all supported versions, not just whichever libc the base image ships.
+# A normal run has only the system binary, so it behaves exactly as before.
+_HEAP_BINARIES = glibc_version_binaries("heap_malloc_chunk")
+_HEAP_DUMP_BINARIES = glibc_version_binaries("heap_malloc_chunk_dump")
+
+glibc_versions = pytest.mark.parametrize(
+    "binary", [b for _, b in _HEAP_BINARIES], ids=[i for i, _ in _HEAP_BINARIES]
+)
+glibc_dump_versions = pytest.mark.parametrize(
+    "binary", [b for _, b in _HEAP_DUMP_BINARIES], ids=[i for i, _ in _HEAP_DUMP_BINARIES]
+)
 
 ADDR_RE = re.compile(r"^Addr: (0x[0-9a-f]+)$")
 
@@ -149,11 +161,12 @@ def generate_expected_malloc_chunk_output(chunks: dict[str, Any]) -> dict[str, A
     return expected
 
 
+@glibc_versions
 @pwndbg_test
-async def test_heap_command_count(ctrl: Controller) -> None:
+async def test_heap_command_count(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
 
-    await launch_to(ctrl, HEAP_MALLOC_CHUNK, "break_here")
+    await launch_to(ctrl, binary, "break_here")
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
@@ -162,13 +175,14 @@ async def test_heap_command_count(ctrl: Controller) -> None:
     assert len(count_addrs) == 2
 
 
+@glibc_versions
 @pwndbg_test
-async def test_heap_command_range_and_count(ctrl: Controller) -> None:
+async def test_heap_command_range_and_count(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.symbol
     from pwndbg.aglib.heap.ptmalloc import Chunk
 
-    await launch_to(ctrl, HEAP_MALLOC_CHUNK, "break_here")
+    await launch_to(ctrl, binary, "break_here")
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
@@ -204,8 +218,9 @@ async def test_heap_command_range_and_count(ctrl: Controller) -> None:
     assert "`addr_end` must be greater than `addr_start`." in invalid_range_output
 
 
+@glibc_versions
 @pwndbg_test
-async def test_malloc_chunk_command(ctrl: Controller) -> None:
+async def test_malloc_chunk_command(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.heap
     import pwndbg.aglib.memory
@@ -213,7 +228,7 @@ async def test_malloc_chunk_command(ctrl: Controller) -> None:
     import pwndbg.dbg_mod
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
-    await launch_to(ctrl, HEAP_MALLOC_CHUNK, "break_here")
+    await launch_to(ctrl, binary, "break_here")
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
@@ -277,14 +292,15 @@ async def test_malloc_chunk_command(ctrl: Controller) -> None:
     assert results["large"] == expected["large"]
 
 
+@glibc_versions
 @pwndbg_test
-async def test_malloc_chunk_command_heuristic(ctrl: Controller) -> None:
+async def test_malloc_chunk_command_heuristic(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.heap
     import pwndbg.aglib.symbol
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
-    await ctrl.launch(HEAP_MALLOC_CHUNK)
+    await ctrl.launch(binary)
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
@@ -342,15 +358,16 @@ async def test_malloc_chunk_command_heuristic(ctrl: Controller) -> None:
     assert results["large"] == expected["large"]
 
 
+@glibc_dump_versions
 @pwndbg_test
-async def test_malloc_chunk_dump_command(ctrl: Controller) -> None:
+async def test_malloc_chunk_dump_command(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.heap
     import pwndbg.aglib.memory
     import pwndbg.aglib.symbol
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
-    await launch_to(ctrl, HEAP_MALLOC_CHUNK_DUMP, "break_here")
+    await launch_to(ctrl, binary, "break_here")
 
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
 
@@ -445,14 +462,15 @@ class mock_for_heuristic:
         pwndbg.dbg.selected_inferior = self.saved_func
 
 
+@glibc_versions
 @pwndbg_test
-async def test_main_arena_heuristic(ctrl: Controller) -> None:
+async def test_main_arena_heuristic(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib.heap
     import pwndbg.aglib.symbol
     import pwndbg.aglib.typeinfo
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
-    await ctrl.launch(HEAP_MALLOC_CHUNK)
+    await ctrl.launch(binary)
     await ctrl.execute("set resolve-heap-via-heuristic force")
     break_at_sym("break_here")
     await ctrl.cont()
@@ -483,14 +501,15 @@ async def test_main_arena_heuristic(ctrl: Controller) -> None:
         assert pwndbg.aglib.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
 
 
+@glibc_versions
 @pwndbg_test
-async def test_mp_heuristic(ctrl: Controller) -> None:
+async def test_mp_heuristic(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib.heap
     import pwndbg.aglib.symbol
     import pwndbg.aglib.typeinfo
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
-    await ctrl.launch(HEAP_MALLOC_CHUNK)
+    await ctrl.launch(binary)
     await ctrl.execute("set resolve-heap-via-heuristic force")
     break_at_sym("break_here")
     await ctrl.cont()
@@ -519,11 +538,14 @@ async def test_mp_heuristic(ctrl: Controller) -> None:
         assert pwndbg.aglib.heap.current.mp.address == mp_addr_via_debug_symbol
 
 
+@glibc_versions
 @pytest.mark.parametrize(
     "is_multi_threaded", [False, True], ids=["single-threaded", "multi-threaded"]
 )
 @pwndbg_test
-async def test_thread_cache_heuristic(ctrl: Controller, is_multi_threaded: bool) -> None:
+async def test_thread_cache_heuristic(
+    ctrl: Controller, is_multi_threaded: bool, binary: Path
+) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.heap
     import pwndbg.aglib.memory
@@ -532,7 +554,7 @@ async def test_thread_cache_heuristic(ctrl: Controller, is_multi_threaded: bool)
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
     # TODO: Support other architectures or different libc versions
-    await ctrl.launch(HEAP_MALLOC_CHUNK)
+    await ctrl.launch(binary)
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
@@ -585,11 +607,14 @@ async def test_thread_cache_heuristic(ctrl: Controller, is_multi_threaded: bool)
         )
 
 
+@glibc_versions
 @pytest.mark.parametrize(
     "is_multi_threaded", [False, True], ids=["single-threaded", "multi-threaded"]
 )
 @pwndbg_test
-async def test_thread_arena_heuristic(ctrl: Controller, is_multi_threaded: bool) -> None:
+async def test_thread_arena_heuristic(
+    ctrl: Controller, is_multi_threaded: bool, binary: Path
+) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.heap
     import pwndbg.aglib.memory
@@ -597,7 +622,7 @@ async def test_thread_arena_heuristic(ctrl: Controller, is_multi_threaded: bool)
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
     # TODO: Support other architectures or different libc versions
-    await ctrl.launch(HEAP_MALLOC_CHUNK)
+    await ctrl.launch(binary)
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
@@ -636,8 +661,9 @@ async def test_thread_arena_heuristic(ctrl: Controller, is_multi_threaded: bool)
         assert pwndbg.aglib.heap.current.thread_arena.address == thread_arena_via_debug_symbol
 
 
+@glibc_versions
 @pwndbg_test
-async def test_global_max_fast_heuristic(ctrl: Controller) -> None:
+async def test_global_max_fast_heuristic(ctrl: Controller, binary: Path) -> None:
     import pwndbg.aglib
     import pwndbg.aglib.heap
     import pwndbg.aglib.memory
@@ -645,7 +671,7 @@ async def test_global_max_fast_heuristic(ctrl: Controller) -> None:
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
     # TODO: Support other architectures or different libc versions
-    await ctrl.launch(HEAP_MALLOC_CHUNK)
+    await ctrl.launch(binary)
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
@@ -675,17 +701,20 @@ async def test_global_max_fast_heuristic(ctrl: Controller) -> None:
         )
 
 
+@glibc_versions
 @pytest.mark.parametrize(
     "is_multi_threaded", [False, True], ids=["single-threaded", "multi-threaded"]
 )
 @pwndbg_test
-async def test_heuristic_fail_gracefully(ctrl: Controller, is_multi_threaded: bool) -> None:
+async def test_heuristic_fail_gracefully(
+    ctrl: Controller, is_multi_threaded: bool, binary: Path
+) -> None:
     import pwndbg.aglib.heap
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
     from pwndbg.lib import SymbolNotRecoveredError
 
     # TODO: Support other architectures or different libc versions
-    await ctrl.launch(HEAP_MALLOC_CHUNK)
+    await ctrl.launch(binary)
     await ctrl.execute("set resolve-heap-via-heuristic force")
     break_at_sym("break_here")
     await ctrl.cont()
