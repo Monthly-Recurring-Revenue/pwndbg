@@ -45,7 +45,11 @@ async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
 
     import pwndbg.libc
 
-    ver = pwndbg.libc.version()
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip(
+            "glibc 2.43 reworked bin placement; this strict per-bin test targets "
+            "pre-2.43 (test_heap_glibc_versions covers 2.43)"
+        )
 
     addr = pwndbg.aglib.symbol.lookup_symbol_addr("tcache_size")
     assert addr is not None
@@ -79,14 +83,10 @@ async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     assert result.bins[tcache_size].bk_chain is None and len(result.bins[tcache_size].fd_chain) == 1
 
     result = allocator.fastbins()
-    if ver >= (2, 43):
-        # glibc 2.43 removed fastbins; fastbins() returns None by design.
-        assert result is None
-    else:
-        assert result is not None
-        assert result.bin_type == BinType.FAST
-        assert fastbin_size in result.bins
-        assert len(result.bins[fastbin_size].fd_chain) == 1
+    assert result is not None
+    assert result.bin_type == BinType.FAST
+    assert fastbin_size in result.bins
+    assert len(result.bins[fastbin_size].fd_chain) == 1
 
     result = allocator.unsortedbin()
     assert result is not None
@@ -133,14 +133,13 @@ async def test_heap_bins(ctrl: Controller, binary: Path) -> None:
     await ctrl.cont()
 
     result = allocator.fastbins()
-    if ver < (2, 43):
-        assert result is not None
-        assert result.bin_type == BinType.FAST
-        assert (fastbin_size in result.bins) and (
-            len(result.bins[fastbin_size].fd_chain) == fastbin_count + 1
-        )
-        for addr in result.bins[fastbin_size].fd_chain[:-1]:
-            assert pwndbg.aglib.vmmap.find(addr)
+    assert result is not None
+    assert result.bin_type == BinType.FAST
+    assert (fastbin_size in result.bins) and (
+        len(result.bins[fastbin_size].fd_chain) == fastbin_count + 1
+    )
+    for addr in result.bins[fastbin_size].fd_chain[:-1]:
+        assert pwndbg.aglib.vmmap.find(addr)
 
     # check unsortedbin
     await ctrl.cont()

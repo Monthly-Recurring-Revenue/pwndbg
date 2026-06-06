@@ -57,7 +57,6 @@ def extract_chunk_addrs(output: str) -> list[int]:
 
 def generate_expected_malloc_chunk_output(chunks: dict[str, Any]) -> dict[str, Any]:
     import pwndbg.aglib.heap
-    import pwndbg.libc
     from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
 
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
@@ -109,10 +108,8 @@ def generate_expected_malloc_chunk_output(chunks: dict[str, Any]) -> dict[str, A
         ]
     )
     real_size = size & (0xFFFFFFFFFFFFFFF - 0b111)
-    # glibc 2.43 removed fastbins, so a freed fastbin-sized chunk now lands in tcache.
-    fast_label = "tcachebins" if pwndbg.libc.version() >= (2, 43) else "fastbins"
     expected["fast"] = [
-        f"Free chunk ({fast_label}) | PREV_INUSE",
+        "Free chunk (fastbins) | PREV_INUSE",
         f"Addr: {int(chunks['fast'].address):#x}",
         f"Size: 0x{real_size:02x} (with flag bits: 0x{size:02x})",
         f"fd: 0x{int(chunks['fast']['fd']):02x}",
@@ -252,6 +249,14 @@ async def test_malloc_chunk_command(ctrl: Controller, binary: Path) -> None:
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
 
+    import pwndbg.libc
+
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip(
+            "glibc 2.43 reworked bin placement; this strict per-bin test targets "
+            "pre-2.43 (test_heap_glibc_versions covers 2.43)"
+        )
+
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
 
     chunks = {}
@@ -323,6 +328,14 @@ async def test_malloc_chunk_command_heuristic(ctrl: Controller, binary: Path) ->
     await ctrl.launch(binary)
     if pwndbg.aglib.arch.name != "x86-64":
         pytest.skip("TODO multiarch")
+
+    import pwndbg.libc
+
+    if pwndbg.libc.version() >= (2, 43):
+        pytest.skip(
+            "glibc 2.43 reworked bin placement; this strict per-bin test targets "
+            "pre-2.43 (test_heap_glibc_versions covers 2.43)"
+        )
 
     assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
 
