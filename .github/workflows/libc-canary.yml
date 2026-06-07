@@ -6,10 +6,6 @@ name: Libc Canary (new releases)
 # version, so breakage in a new libc is caught before it reaches users.
 # workflow_dispatch can force a specific version to exercise the pipeline on demand.
 on:
-  # TEMP(musl canary validation): run on push to libc to exercise the musl path
-  # before this is on the default branch. Remove this push: block before merging.
-  push:
-    branches: [libc]
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
   workflow_dispatch:
@@ -39,9 +35,7 @@ jobs:
         id: detect
         env:
           FORCE_GLIBC: ${{ inputs.force_glibc }}
-          # TEMP(musl canary validation): force an unpinned real musl (1.2.2) to
-          # exercise the musl path; revert to ${{ inputs.force_musl }} before merging.
-          FORCE_MUSL: "1.2.2"
+          FORCE_MUSL: ${{ inputs.force_musl }}
         run: |
           set -euo pipefail
           if [ -n "${FORCE_GLIBC}" ] || [ -n "${FORCE_MUSL}" ]; then
