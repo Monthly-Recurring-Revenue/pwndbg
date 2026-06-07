@@ -17,9 +17,11 @@ dump() {
 cd /tmp
 curl -fsSL --retry 3 -o jemalloc.tar.bz2 "$JEMALLOC_URL"
 echo "${JEMALLOC_SHA256}  jemalloc.tar.bz2" | sha256sum -c -
-rm -rf jemalloc-5.3.0
-tar xf jemalloc.tar.bz2
-cd jemalloc-5.3.0
+# Extract into a fixed dir regardless of the tarball's version-named top folder.
+rm -rf jemalloc-src
+mkdir jemalloc-src
+tar xf jemalloc.tar.bz2 -C jemalloc-src --strip-components=1
+cd jemalloc-src
 
 cfg_args=()
 if [ -n "${LG_VADDR_FORCE:-}" ]; then
