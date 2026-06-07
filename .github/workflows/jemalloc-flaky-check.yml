@@ -1,0 +1,132 @@
+name: Jemalloc Flaky Check
+
+# Reproduces the #3615 jemalloc flake faithfully and checks the fix against it.
+#
+# The flake lives in the BUILD step: jemalloc detects LG_VADDR (significant
+# virtual-address bits) at configure time from the build CPU -- 48 on
+# 4-level-paging hosts, 57 on 5-level-paging (LA57; Ice Lake+) hosts -- and bakes
+# the resulting radix-tree geometry into libjemalloc. GitHub's runner fleet is
+# mixed, so historically ~a few percent of CI runs happened to build on a 57-bit
+# host and failed, while the rest built 48-bit and passed.
+#
+# Pulling a prebuilt image can't reproduce that (one fixed geometry). So instead
+# this pulls the image for its toolchain and then RECOMPILES jemalloc on each
+# runner, so the geometry reflects that runner's CPU -- the exact roulette. With
+# the fix every run should pass regardless of which geometry it draws; each job
+# logs the LG_VADDR it built so you can see the spread. Two extra jobs force
+# LG_VADDR=48 and =57 so both paths are always covered even if the fleet hands
+# out only one kind that day.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "How many roulette runs (random per-runner geometry, max 256)"
+        default: "100"
+        required: false
+  push:
+    branches:
+      - libc
+    paths:
+      - "pwndbg/aglib/heap/jemalloc.py"
+      - "pwndbg/commands/jemalloc.py"
+      - "tests/library/dbg/tests/test_jemalloc.py"
+      - "tests/binaries/host/heap_jemalloc_*.native.c"
+      - ".github/workflows/jemalloc-flaky-check.yml"
+
+concurrency:
+  # Separate group per event so a manual sweep (workflow_dispatch) is never
+  # cancelled by a push on the same ref. Only superseded push runs are cancelled.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  JEMALLOC_URL: "https://github.com/jemalloc/jemalloc/releases/download/5.3.1/jemalloc-5.3.1.tar.bz2"
+  JEMALLOC_SHA256: "3826bc80232f22ed5c4662f3034f799ca316e819103bdc7bb99018a421706f92"
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - name: Build run matrix
+        id: gen
+        run: |
+          set -euo pipefail
+          runs="${{ github.event.inputs.runs || '100' }}"
+          case "$runs" in
+            ''|*[!0-9]*) runs=100 ;;
+          esac
+          if [ "$runs" -lt 1 ]; then runs=1; fi
+          if [ "$runs" -gt 256 ]; then runs=256; fi
+          matrix="$(seq 1 "$runs" | jq -cs '{iteration: .}')"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  # Random per-runner geometry: recompile jemalloc with default ./configure so it
+  # detects this runner's CPU. Reproduces the historical build-host roulette.
+  roulette:
+    needs: setup
+    name: roulette ${{ matrix.iteration }}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Recompile jemalloc on this runner + run jemalloc tests
+        run: |
+          docker compose run -T --rm --pull always \
+            -e JEMALLOC_URL -e JEMALLOC_SHA256 -e LG_VADDR_FORCE= \
+            -v $(pwd):/pwndbg ubuntu24.04 bash /pwndbg/.github/scripts/jemalloc-rebuild-and-test.sh
+
+  # Guaranteed coverage of both geometries regardless of the runner fleet.
+  forced:
+    name: forced lg_vaddr=${{ matrix.lg_vaddr }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lg_vaddr: [48, 57]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build jemalloc (lg_vaddr=${{ matrix.lg_vaddr }}) + run jemalloc tests
+        run: |
+          docker compose run -T --rm --pull always \
+            -e JEMALLOC_URL -e JEMALLOC_SHA256 -e LG_VADDR_FORCE=${{ matrix.lg_vaddr }} \
+            -v $(pwd):/pwndbg ubuntu24.04 bash /pwndbg/.github/scripts/jemalloc-rebuild-and-test.sh
+
+  report:
+    needs: [roulette, forced]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize
+        run: |
+          roulette="${{ needs.roulette.result }}"
+          forced="${{ needs.forced.result }}"
+          echo "roulette: $roulette | forced: $forced"
+          if [ "$roulette" != "success" ] || [ "$forced" != "success" ]; then
+            echo "::error::At least one jemalloc test run failed -- still flaky."
+            exit 1
+          fi
+          echo "All jemalloc test runs passed."
