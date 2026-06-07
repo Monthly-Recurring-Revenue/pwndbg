@@ -1,0 +1,108 @@
+name: Jemalloc Flaky Check
+
+# Same mechanism as the "Test Docker" workflow (docker compose run against the
+# prebuilt ghcr.io/pwndbg/pwndbg image), but trimmed to shake out the #3615
+# jemalloc flake: only the ubuntu24.04 image, only the jemalloc tests, run many
+# times (default 100) instead of once. It pulls the image -- no building.
+#
+# NOTE: every iteration uses the SAME pulled image, so all runs share one
+# jemalloc rtree geometry (today's ubuntu24.04 image is a 5-level-paging /
+# LG_VADDR=57 build -- the geometry that used to make #3615 fail). This is a
+# RUNTIME-flakiness stress test on that hard geometry; it cannot reproduce the
+# build-host randomness that was the original flake's root cause (that needs
+# images built on both 4- and 5-level-paging hosts).
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "How many times to run the jemalloc tests (max 256)"
+        default: "100"
+        required: false
+  push:
+    branches:
+      - libc
+    paths:
+      - "pwndbg/aglib/heap/jemalloc.py"
+      - "pwndbg/commands/jemalloc.py"
+      - "tests/library/dbg/tests/test_jemalloc.py"
+      - "tests/binaries/host/heap_jemalloc_*.native.c"
+      - ".github/workflows/jemalloc-flaky-check.yml"
+
+concurrency:
+  # Separate group per event so a manual 100x sweep (workflow_dispatch) is never
+  # cancelled by a push on the same ref. Only superseded push runs are cancelled.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - name: Build run matrix
+        id: gen
+        run: |
+          set -euo pipefail
+          runs="${{ github.event.inputs.runs || '100' }}"
+          # keep it numeric and within GitHub's 256-job matrix cap
+          case "$runs" in
+            ''|*[!0-9]*) runs=100 ;;
+          esac
+          if [ "$runs" -lt 1 ]; then runs=1; fi
+          if [ "$runs" -gt 256 ]; then runs=256; fi
+          matrix="$(seq 1 "$runs" | jq -cs '{iteration: .}')"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  jemalloc:
+    needs: setup
+    name: jemalloc ${{ matrix.iteration }}
+    strategy:
+      fail-fast: false
+      # Throttle so 100 jobs don't starve the rest of CI. Raise/remove to fan
+      # out wider (capped by the account's concurrent-runner limit anyway).
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to GHCR
+        # Authenticated pulls avoid anonymous ghcr rate limits across many jobs.
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run jemalloc tests on ubuntu24.04
+        run: |
+          docker compose run -T --rm --pull always -v $(pwd):/pwndbg ubuntu24.04 bash -c '
+            set -euo pipefail
+            # Build only the jemalloc test binaries + create the libpython symlink.
+            make -C /pwndbg/tests/binaries/host -j4 \
+              heap_jemalloc_extent_info.native.out heap_jemalloc_heap.native.out
+            gdb --batch
+            ./tests.sh -d gdb -g dbg test_jemalloc
+          '
+
+  report:
+    needs: jemalloc
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize
+        run: |
+          result="${{ needs.jemalloc.result }}"
+          echo "jemalloc matrix result: $result"
+          if [ "$result" != "success" ]; then
+            echo "::error::At least one jemalloc test run failed -- the tests are still flaky."
+            exit 1
+          fi
+          echo "All jemalloc test runs passed."
