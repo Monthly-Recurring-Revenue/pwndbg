@@ -6,11 +6,6 @@ name: Libc Canary (new releases)
 # version, so breakage in a new libc is caught before it reaches users.
 # workflow_dispatch can force a specific version to exercise the pipeline on demand.
 on:
-  # TEMP(canary validation): run on push to libc so the pipeline can be exercised
-  # before it reaches the default branch (where workflow_dispatch becomes usable).
-  # Remove this push: block before merging.
-  push:
-    branches: [libc]
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
   workflow_dispatch:
@@ -39,10 +34,7 @@ jobs:
       - name: Detect new libc releases
         id: detect
         env:
-          # TEMP(canary validation): force an unpinned real version (2.34) to exercise
-          # add-canary-version + canary build mode + build + test on the branch.
-          # Revert to ${{ inputs.force_glibc }} before merging.
-          FORCE_GLIBC: "2.34"
+          FORCE_GLIBC: ${{ inputs.force_glibc }}
           FORCE_MUSL: ${{ inputs.force_musl }}
         run: |
           set -euo pipefail
