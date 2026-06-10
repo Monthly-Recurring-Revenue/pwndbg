@@ -9,7 +9,7 @@ name: Heap Libc Version Tests
 on:
   workflow_dispatch:
   push:
-    branches: [dev]
+    branches: [libc-version-testing]
   pull_request:
 
 concurrency:
