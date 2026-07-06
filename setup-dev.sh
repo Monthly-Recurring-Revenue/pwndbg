@@ -177,10 +177,14 @@ install_dnf() {
 }
 
 install_jemalloc() {
+    JEMALLOC_STAGE="${HOME}/.cache/pwndbg/jemalloc"
 
     # Check if jemalloc is already installed
     if command -v jemalloc-config &> /dev/null; then
         echo "Jemalloc already installed. Skipping build and install."
+    elif [ -d "${JEMALLOC_STAGE}" ]; then
+        echo "Installing jemalloc from cached build at ${JEMALLOC_STAGE}..."
+        sudo cp -a "${JEMALLOC_STAGE}/." /
     else
         echo "Jemalloc not found in system. Downloading, configuring, building, and installing..."
 
@@ -231,8 +235,10 @@ install_jemalloc() {
         # libstdc++ (e.g. Arch's GCC), and pwndbg's tests don't use it, so disable it.
         ./configure --disable-cxx
         make
-        sudo make install
+        make install DESTDIR="${JEMALLOC_STAGE}"
         popd
+
+        sudo cp -a "${JEMALLOC_STAGE}/." /
 
         echo "Jemalloc installation complete."
     fi
