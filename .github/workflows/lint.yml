@@ -1,5 +1,8 @@
 name: Lint
 on:
+  push:
+    branches:
+      - ci-caching
   pull_request:
 
 concurrency:
