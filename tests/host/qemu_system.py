@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import atexit
+import functools
 import os
 import subprocess
+import threading
 from pathlib import Path
 
 from ..library.qemu_system import images as kernel_images
@@ -12,6 +14,10 @@ from . import TestStatus
 from .gdb import GDBTestHost
 
 _BOOT_TIMEOUT_S = 180
+
+# every checked-out VM is driven by a GDB session that loads the full vmlinux,
+# so the memory cost of a slot is dominated by GDB, not QEMU
+_MAX_VMS_PER_CONFIG = min(os.cpu_count() or 1, 4)
 
 
 def _console_tail(log: Path, lines: int = 40) -> str:
@@ -31,7 +37,6 @@ def _warn_if_ptrace_restricted() -> None:
     try:
         scope = int(Path("/proc/sys/kernel/yama/ptrace_scope").read_text())
     except (OSError, ValueError):
-        # No Yama, nothing to warn about.
         return
 
     if scope != 0 and os.geteuid() != 0:
@@ -42,6 +47,82 @@ def _warn_if_ptrace_restricted() -> None:
             "\n"
             "    echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope\n"
         )
+
+
+class _VmPool:
+    """A lazily grown pool of booted VMs for one kernel configuration.
+
+    acquire() hands out an idle VM, booting a fresh one if none is idle and
+    the pool is below its size limit, and blocking until a release() otherwise.
+    """
+
+    def __init__(self, boot: functools.partial[qemu.QemuVM], limit: int):
+        self._boot = boot
+        self._limit = limit
+        self._cond = threading.Condition()
+        # protected by _cond:
+        self._idle: list[qemu.QemuVM] = []
+        self._vms: list[qemu.QemuVM] = []
+        self._slots = 0
+        self._closed = False
+
+    def acquire(self) -> qemu.QemuVM:
+        with self._cond:
+            while True:
+                if self._closed:
+                    raise RuntimeError("VM pool is shut down")
+                if self._idle:
+                    return self._idle.pop()
+                if self._slots < self._limit:
+                    self._slots += 1
+                    break
+                # every VM is checked out and the pool may not grow; wait for
+                # a release (or shutdown) to wake us
+                self._cond.wait()
+
+        # boot outside the lock: it takes tens of seconds, and the other
+        # workers must be able to acquire and release VMs meanwhile
+        try:
+            vm = self._boot()
+        except BaseException:
+            with self._cond:
+                self._slots -= 1
+                self._cond.notify()
+            raise
+
+        with self._cond:
+            if self._closed:
+                # shutdown() ran while we were booting and could not see this
+                # VM, so it is ours to kill
+                self._slots -= 1
+                vm.kill()
+                raise RuntimeError("VM pool is shut down")
+            self._vms.append(vm)
+
+        return vm
+
+    def release(self, vm: qemu.QemuVM) -> None:
+        with self._cond:
+            if self._closed:
+                return
+            if vm.alive():
+                self._idle.append(vm)
+            else:
+                # QEMU died while the test ran; free the slot so the next
+                # test boots a replacement
+                self._vms.remove(vm)
+                self._slots -= 1
+            self._cond.notify()
+
+    def shutdown(self) -> None:
+        with self._cond:
+            self._closed = True
+            vms = list(self._vms)
+            self._vms.clear()
+            self._idle.clear()
+            self._cond.notify_all()
+        for vm in vms:
+            vm.kill()
 
 
 class QemuSystemTestHost(GDBTestHost):
@@ -71,7 +152,10 @@ class QemuSystemTestHost(GDBTestHost):
             )
 
         self._configs = {config.id: config for config in qemu.test_configs(images)}
-        self._vm: qemu.QemuVM | None = None
+        self._pools = {
+            config_id: _VmPool(functools.partial(self._boot_vm, config), _MAX_VMS_PER_CONFIG)
+            for config_id, config in self._configs.items()
+        }
 
         # make sure no QEMU process outlives the test run
         atexit.register(self.shutdown)
@@ -79,14 +163,14 @@ class QemuSystemTestHost(GDBTestHost):
         _warn_if_ptrace_restricted()
 
     def shutdown(self) -> None:
-        if self._vm is not None:
-            self._vm.kill()
-            self._vm = None
+        for pool in self._pools.values():
+            pool.shutdown()
 
     def collect(self) -> list[str]:
         cases = super().collect()
 
-        # group cases by config, so one VM boot serves all of a config's tests
+        # group cases by config, so one config's pool drains before the next
+        # config starts booting VMs
         return [f"{case}[{config_id}]" for config_id in self._configs for case in cases]
 
     def run(
@@ -96,9 +180,10 @@ class QemuSystemTestHost(GDBTestHost):
         interactive: bool,
     ) -> TestResult:
         base_case, config = self._parse_case(case)
+        pool = self._pools[config.id]
 
         try:
-            vm = self._vm_for(config)
+            vm = pool.acquire()
         except Exception as e:
             # report a boot failure as this test's failure; raising here would be
             # swallowed by the runner's Future callback and vanish from the summary
@@ -120,9 +205,7 @@ class QemuSystemTestHost(GDBTestHost):
             }
             return self._run_case(base_case, coverage_out, interactive, extra_gdb_args, extra_env)
         finally:
-            if not vm.alive():
-                # QEMU died while the test ran; boot a fresh VM for the next test
-                self._vm = None
+            pool.release(vm)
 
     def _parse_case(self, case: str) -> tuple[str, qemu.KernelConfig]:
         """Split a "<pytest case>[<kernel config>]" name produced by
@@ -134,21 +217,13 @@ class QemuSystemTestHost(GDBTestHost):
             raise ValueError(f"test case {case!r} does not name a known kernel configuration")
         return base_case, self._configs[config_id]
 
-    def _vm_for(self, config: qemu.KernelConfig) -> qemu.QemuVM:
-        if self._vm is not None:
-            if self._vm.config.id == config.id and self._vm.alive():
-                return self._vm
-            self._vm.kill()
-            self._vm = None
-
+    def _boot_vm(self, config: qemu.KernelConfig) -> qemu.QemuVM:
         vm = qemu.QemuVM(config)
         try:
             self._advance_guest_to_rest_init(vm)
         except BaseException:
             vm.kill()
             raise
-
-        self._vm = vm
         return vm
 
     def _advance_guest_to_rest_init(self, vm: qemu.QemuVM) -> None:

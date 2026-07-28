@@ -80,14 +80,6 @@ def main() -> None:
     match args.driver:
         case Driver.GDB:
             host = get_gdb_host(args, local_pwndbg_root)
-
-            if args.group == Group.KERNEL:
-                # The kernel host keeps a single live VM; running its tests in
-                # parallel needs a pool of booted guests.
-                print(
-                    "WARNING: Kernel tests always run in series, even when parallel execution is requested."
-                )
-                force_serial = True
         case Driver.LLDB:
             host = get_lldb_host(args, local_pwndbg_root)
 
