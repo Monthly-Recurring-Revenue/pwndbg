@@ -37,7 +37,7 @@ docker compose run --rm ubuntu24.04-mount ./tests.sh -d gdb -g gdb
 # Cross-architecture tests
 docker compose run --rm ubuntu24.04-mount ./tests.sh -d gdb -g cross-arch-user
 # Kernel tests (x86_64 and aarch64)
-docker compose run --rm ubuntu24.04-mount ./kernel-tests.sh
+docker compose run --rm ubuntu24.04-mount ./tests.sh -d gdb -g kernel
 # Unit tests
 docker compose run --rm ubuntu24.04-mount ./unit-tests.sh
 ```
@@ -68,7 +68,7 @@ The commands are analogous to the docker commands.
 # Cross-architecture tests
 ./tests.sh -d gdb -g cross-arch-user
 # Kernel tests (x86_64 and aarch64)
-./kernel-tests.sh
+./tests.sh -d gdb -g kernel
 # Unit tests
 ./unit-tests.sh
 ```

@@ -10,26 +10,31 @@ URL=${URL:-"https://github.com/pwndbg/linux-exploit-dev-env/releases/latest/down
 
 mkdir -p "${OUT_DIR}"
 
-download() {
-    local file="$1"
-    hash_old=$(grep "${file}" "${OUT_DIR}/hashsums.txt.old" 2> /dev/null || true)
-    hash_new=$(grep "${file}" "${OUT_DIR}/hashsums.txt" 2> /dev/null)
-    # only download file if it doesn't exist or its hashsum has changed
-    if [ ! -f "${OUT_DIR}/${file}" ] || [ "${hash_new}" != "${hash_old}" ]; then
-        wget --no-verbose --show-progress --progress=bar:force:noscroll "${URL}/${file}" -O "${OUT_DIR}/${file}"
-    fi
-}
-
-if [ -f "${OUT_DIR}/hashsums.txt" ]; then
-    mv -f "${OUT_DIR}/hashsums.txt" "${OUT_DIR}/hashsums.txt.old"
-fi
-
 wget --no-verbose --show-progress --progress=bar:force:noscroll "${URL}/hashsums.txt" -O "${OUT_DIR}/hashsums.txt"
+
+download() {
+    local hash="$1"
+    local file="$2"
+
+    # only download file if it doesn't exist or its hashsum has changed
+    if echo "${hash}  ${OUT_DIR}/${file}" | sha256sum --check --status 2> /dev/null; then
+        return 0
+    fi
+
+    # Download to a temporary dotfile first so that an interrupted transfer
+    # is never mistaken for a complete image, then rename into place.
+    wget --no-verbose --show-progress --progress=bar:force:noscroll "${URL}/${file}" -O "${OUT_DIR}/.${file}.part"
+    if ! echo "${hash}  ${OUT_DIR}/.${file}.part" | sha256sum --check --status; then
+        echo "Checksum mismatch for ${file}" >&2
+        rm -f "${OUT_DIR}/.${file}.part"
+        return 1
+    fi
+    mv "${OUT_DIR}/.${file}.part" "${OUT_DIR}/${file}"
+}
 
 pids=()
 while read -r hash file; do
-    echo "Downloading ${file}..."
-    download "${file}" &
+    download "${hash}" "${file}" &
     pids+=($!)
 done < "${OUT_DIR}/hashsums.txt"
 

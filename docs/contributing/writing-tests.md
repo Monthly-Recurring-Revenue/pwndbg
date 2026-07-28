@@ -24,7 +24,12 @@ directory. They can be run with `./tests.sh -d gdb -g cross-arch-user`.
 
 The linux kernel tests are run using qemu-system emulation. They are located in the
 [`./tests/library/qemu_system`](https://github.com/pwndbg/pwndbg/tree/dev/tests/library/qemu_system)
-directory and run for a variety kernel configurations and architectures.
+directory and run for a variety kernel configurations and architectures. They can be run with
+`./tests.sh -d gdb -g kernel`. Each test runs in its
+own GDB session attached to a QEMU virtual machine; the prebuilt kernels (built by
+[linux-exploit-dev-env](https://github.com/pwndbg/linux-exploit-dev-env)) are downloaded
+automatically on the first run. To boot one of the kernels interactively, use
+`python3 -m tests.library.qemu_system.qemu`.
 
 The unit tests are not run from within a debugger, but rather directly with pytest. They are located
 in the [`./tests/unit_tests/`](https://github.com/pwndbg/pwndbg/tree/dev/tests/unit_tests)
@@ -32,7 +37,7 @@ directory.
 
 Here are the options supported by `./tests.sh` which you can get by running `./tests.sh --help`.
 ```
-usage: tests.py [-h] -g {gdb,lldb,dbg,cross-arch-user} -d {gdb,lldb} [-p] [-c] [-v] [-s] [--nix] [--collect-only] [--clean] [test_name_filter]
+usage: tests.py [-h] -g {gdb,lldb,dbg,cross-arch-user,kernel} -d {gdb,lldb} [-p] [-c] [-v] [-s] [--nix] [--collect-only] [--clean] [test_name_filter]
 
 Run tests.
 
@@ -41,7 +46,7 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  -g {gdb,lldb,dbg,cross-arch-user}, --group {gdb,lldb,dbg,cross-arch-user}
+  -g {gdb,lldb,dbg,cross-arch-user,kernel}, --group {gdb,lldb,dbg,cross-arch-user,kernel}
   -d {gdb,lldb}, --driver {gdb,lldb}
   -p, --pdb             enable pdb (Python debugger) post mortem debugger on failed tests
   -c, --cov             enable codecov

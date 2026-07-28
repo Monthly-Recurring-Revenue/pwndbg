@@ -43,25 +43,51 @@ def main() -> None:
         print("Will run tests in serial and with Python debugger")
         args.serial = True
 
-    # Build the binaries for the test group.
-    #
-    # As the nix store is read-only, we always use the local Pwndbg root for
-    # building tests, even if the user has requested a nix-compatible test.
-    #
-    # Ideally, however, we would build the test targets as part of `nix verify`.
-    make_all(local_pwndbg_root / args.group.binary_dir())
-
+    # Check this before building or downloading anything for the group; the
+    # kernel images in particular are a multi-gigabyte download.
     if not args.driver.can_run(args.group):
         print(
             f"ERROR: Driver '{args.driver}' can't run test group '{args.group}'. Use another driver."
         )
         sys.exit(1)
 
+    binary_dir = args.group.binary_dir()
+    if binary_dir is not None:
+        # Build the binaries for the test group.
+        #
+        # As the nix store is read-only, we always use the local Pwndbg root for
+        # building tests, even if the user has requested a nix-compatible test.
+        #
+        # Ideally, however, we would build the test targets as part of `nix verify`.
+        make_all(local_pwndbg_root / binary_dir)
+    else:
+        # The kernel group debugs prebuilt guest kernels instead of locally
+        # built binaries; fetch them if this is the first run.
+        from .library.qemu_system.images import KIMAGES_DIR
+        from .library.qemu_system.images import discover_images
+
+        if not discover_images(KIMAGES_DIR):
+            print(f"No kernel images found. Downloading to {KIMAGES_DIR}...")
+            try:
+                subprocess.check_call(
+                    [str(local_pwndbg_root / "tests/library/qemu_system/download-kernel-images.sh")]
+                )
+            except subprocess.CalledProcessError:
+                sys.exit(1)
+
     force_serial = False
     assert args.driver in (Driver.GDB, Driver.LLDB)
     match args.driver:
         case Driver.GDB:
             host = get_gdb_host(args, local_pwndbg_root)
+
+            if args.group == Group.KERNEL:
+                # The kernel host keeps a single live VM; running its tests in
+                # parallel needs a pool of booted guests.
+                print(
+                    "WARNING: Kernel tests always run in series, even when parallel execution is requested."
+                )
+                force_serial = True
         case Driver.LLDB:
             host = get_lldb_host(args, local_pwndbg_root)
 
@@ -191,12 +217,26 @@ def get_gdb_host(args: argparse.Namespace, local_pwndbg_root: Path) -> TestHost:
             sys.exit(1)
         gdb_path = Path(gdb_path_str)
 
+    if args.group == Group.KERNEL:
+        from .host.qemu_system import QemuSystemTestHost
+        from .library.qemu_system.images import KIMAGES_DIR
+
+        return QemuSystemTestHost(
+            local_pwndbg_root,
+            local_pwndbg_root / args.group.library(),
+            KIMAGES_DIR,
+            gdb_path,
+        )
+
     from .host.gdb import GDBTestHost
+
+    binary_dir = args.group.binary_dir()
+    assert binary_dir is not None
 
     return GDBTestHost(
         local_pwndbg_root,
         local_pwndbg_root / args.group.library(),
-        local_pwndbg_root / args.group.binary_dir(),
+        local_pwndbg_root / binary_dir,
         gdb_path,
     )
 
@@ -211,10 +251,13 @@ def get_lldb_host(args: argparse.Namespace, local_pwndbg_root: Path) -> TestHost
 
     from .host.lldb import LLDBTestHost
 
+    binary_dir = args.group.binary_dir()
+    assert binary_dir is not None
+
     return LLDBTestHost(
         local_pwndbg_root,
         local_pwndbg_root / args.group.library(),
-        local_pwndbg_root / args.group.binary_dir(),
+        local_pwndbg_root / binary_dir,
     )
 
 
@@ -227,6 +270,7 @@ class Group(Enum):
     LLDB = "lldb"
     DBG = "dbg"
     CROSS_ARCH_USER = "cross-arch-user"
+    KERNEL = "kernel"
 
     def __str__(self) -> str:
         return self._value_
@@ -244,19 +288,26 @@ class Group(Enum):
                 return Path("tests/library/dbg/")
             case Group.CROSS_ARCH_USER:
                 return Path("tests/library/qemu_user/")
+            case Group.KERNEL:
+                return Path("tests/library/qemu_system/")
             case other:
                 raise AssertionError(f"group {other} is unaccounted for")
 
-    def binary_dir(self) -> Path:
+    def binary_dir(self) -> Path | None:
         """
         Subdirectory relative to the Pwndbg root containing the required
-        binaries for a given test group.
+        binaries for a given test group, or None for groups whose test
+        targets are not built locally.
         """
         match self:
             case Group.GDB | Group.LLDB | Group.DBG:
                 return Path("tests/binaries/host/")
             case Group.CROSS_ARCH_USER:
                 return Path("tests/binaries/qemu_user/")
+            case Group.KERNEL:
+                # Kernel tests target prebuilt kernel images, downloaded by
+                # tests/library/qemu_system/download-kernel-images.sh.
+                return None
             case other:
                 raise AssertionError(f"group {other} is unaccounted for")
 
@@ -283,6 +334,8 @@ class Driver(Enum):
                         return True
                     case Group.CROSS_ARCH_USER:
                         return True
+                    case Group.KERNEL:
+                        return True
             case Driver.LLDB:
                 match grp:
                     case Group.GDB:
@@ -292,6 +345,8 @@ class Driver(Enum):
                     case Group.DBG:
                         return True
                     case Group.CROSS_ARCH_USER:
+                        return False
+                    case Group.KERNEL:
                         return False
         raise AssertionError(f"unaccounted for combination of driver '{self}' and group '{grp}'")
 

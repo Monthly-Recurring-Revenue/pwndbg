@@ -54,12 +54,26 @@ class GDBTestHost(TestHost):
         coverage_out: Path | None,
         interactive: bool,
     ) -> TestResult:
+        return self._run_case(case, coverage_out, interactive, [], {})
+
+    def _run_case(
+        self,
+        case: str,
+        coverage_out: Path | None,
+        interactive: bool,
+        extra_gdb_args: list[str],
+        extra_env: dict[str, str],
+    ) -> TestResult:
+        """The qemu-system test host uses the extra GDB commands and environment
+        variables to attach the session to its guest VM before the test runs.
+        """
         gdb_args_before = []
         if coverage_out is not None:
             gdb_args_before = [
                 "-ex",
                 "py import coverage;coverage.process_startup();",
             ]
+        gdb_args_before += extra_gdb_args
 
         # We pass parameters to `pytests_launcher` through environment variables.
         env = os.environ.copy()
@@ -71,6 +85,7 @@ class GDBTestHost(TestHost):
         env["NO_COLOR"] = "1"
         env["GDB_BIN_PATH"] = str(self._gdb_path)
         env["TEST_BINARIES_ROOT"] = str(self._binaries_root)
+        env.update(extra_env)
         if interactive:
             env["USE_PDB"] = "1"
 

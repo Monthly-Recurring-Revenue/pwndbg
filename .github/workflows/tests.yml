@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - dev
+      - pytest
   pull_request:
 
 concurrency:
@@ -100,7 +101,7 @@ jobs:
       - name: Run kernel tests
         if: matrix.type == 'qemu-system-tests'
         run: |
-          ./kernel-tests.sh --nix
+          ./tests.sh --nix -d gdb -g kernel
 
   qemu-system-tests:
     needs: changes
@@ -135,4 +136,4 @@ jobs:
       - name: Run kernel tests
         run: |
           sudo sysctl -w kernel.yama.ptrace_scope=0
-          ./kernel-tests.sh
+          ./tests.sh -d gdb -g kernel
