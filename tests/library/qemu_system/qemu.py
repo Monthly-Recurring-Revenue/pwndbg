@@ -64,7 +64,13 @@ def qemu_command(
         console = "console=ttyAMA0"
     elif image.arch == "x86_64":
         binary = "qemu-system-x86_64"
-        machine_args = []
+        # Run under KVM when the host offers it (near-native, vs emulating
+        # every instruction with TCG), falling back to TCG otherwise.
+        # https://www.qemu.org/docs/master/system/invocation.html#:~:text=next%20one%20is%20used
+        # The la57 variant forces 5-level paging through -cpu, which under KVM
+        # depends on the host CPU; keep it on TCG so the 5-level paths run
+        # deterministically on any runner.
+        machine_args = [] if config.variant == "la57" else ["-machine", "accel=kvm:tcg"]
         # 8250.nr_uarts=1 limits the 8250 driver to registering a single
         # serial port (the console on ttyS0).
         # https://elixir.bootlin.com/linux/v6.6/source/drivers/tty/serial/8250/8250_core.c#:~:text=Maximum%20number%20of%20UARTs

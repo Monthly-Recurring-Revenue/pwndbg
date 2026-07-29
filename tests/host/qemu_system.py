@@ -15,9 +15,10 @@ from .gdb import GDBTestHost
 
 _BOOT_TIMEOUT_S = 180
 
-# every live VM is driven by a GDB session that loads the full vmlinux, so the
-# memory cost is dominated by GDB, not QEMU; only ~cpu_count tests run at once
-_MAX_VMS = min(os.cpu_count() or 1, 4)
+# Each parallel lane owns one VM and loads the full vmlinux in a fresh GDB
+# process for every case. Three configuration lanes avoid the contention seen
+# with four while still overlapping the expensive emulated boots.
+_MAX_VMS = min(os.cpu_count() or 1, 3)
 
 
 def _console_tail(log: Path, lines: int = 40) -> str:
@@ -64,6 +65,7 @@ class _VmManager:
         self._cond = threading.Condition()
         # everything below is protected by _cond:
         self._idle: dict[str, list[qemu.QemuVM]] = {}
+        self._vms: set[qemu.QemuVM] = set()
         self._live = 0
         self._closed = False
         # configs whose first boot failed; cached so their remaining tests fail
@@ -85,6 +87,7 @@ class _VmManager:
                     vm = idle.pop()
                     if vm.alive():
                         return vm
+                    self._vms.discard(vm)
                     self._live -= 1
 
                 if self._live < self._limit or self._evict_idle():
@@ -105,29 +108,37 @@ class _VmManager:
             raise
 
         with self._cond:
-            if self._closed:
-                self._live -= 1
-                vm.kill()
-                raise RuntimeError("VM manager is shut down")
-        return vm
+            if not self._closed:
+                self._vms.add(vm)
+                return vm
+            self._live -= 1
+
+        vm.kill()
+        raise RuntimeError("VM manager is shut down")
 
     def release(self, config: qemu.KernelConfig, vm: qemu.QemuVM) -> None:
+        kill = False
         with self._cond:
             if self._closed:
-                vm.kill()
-                return
-            if vm.alive():
+                self._vms.discard(vm)
+                kill = True
+            elif vm.alive():
                 self._idle.setdefault(config.id, []).append(vm)
             else:
                 # QEMU died while the test ran; free the slot for a replacement
+                self._vms.discard(vm)
                 self._live -= 1
             self._cond.notify()
+        if kill:
+            vm.kill()
 
     def _evict_idle(self) -> bool:
         # caller holds _cond; kill one idle VM of any config to free a slot
         for vms in self._idle.values():
             if vms:
-                vms.pop().kill()
+                vm = vms.pop()
+                self._vms.discard(vm)
+                vm.kill()
                 self._live -= 1
                 return True
         return False
@@ -135,10 +146,10 @@ class _VmManager:
     def shutdown(self) -> None:
         with self._cond:
             self._closed = True
-            vms = [vm for group in self._idle.values() for vm in group]
+            vms = list(self._vms)
+            self._vms.clear()
             self._idle.clear()
             self._cond.notify_all()
-        # checked-out VMs are killed by their own release(), which sees _closed
         for vm in vms:
             vm.kill()
 
@@ -187,15 +198,31 @@ class QemuSystemTestHost(GDBTestHost):
         # before the next config's VMs boot
         return [f"{case}[{config_id}]" for config_id in self._configs for case in cases]
 
+    def execution_groups(self, cases: list[str]) -> list[list[str]]:
+        """Create one sequential execution lane for each kernel config."""
+        groups: dict[tuple[str, str | int], list[str]] = {}
+        for index, case in enumerate(cases):
+            try:
+                _, config = self._parse_case(case)
+                key: tuple[str, str | int] = ("config", config.id)
+            except Exception:
+                # Keep malformed cases visible to run_group(), which turns
+                # them into normal failed test results.
+                key = ("invalid", index)
+            groups.setdefault(key, []).append(case)
+        return list(groups.values())
+
+    def max_parallelism(self) -> int | None:
+        return _MAX_VMS
+
     def run(
         self,
         case: str,
         coverage_out: Path | None,
         interactive: bool,
     ) -> TestResult:
-        # run() must never raise: the parallel runner reads results in a Future
-        # callback that swallows exceptions, so a raised test would vanish from
-        # the summary and leave the run green
+        # Convert host/setup errors into ordinary test failures so the run can
+        # continue and include them in its final summary.
         try:
             base_case, config = self._parse_case(case)
         except Exception as e:
@@ -206,6 +233,93 @@ class QemuSystemTestHost(GDBTestHost):
         except Exception as e:
             return TestResult(TestStatus.FAILED, 0, str(e), "", "failed to boot VM")
 
+        try:
+            return self._run_case_on_vm(base_case, config, vm, coverage_out, interactive)
+        finally:
+            self._manager.release(config, vm)
+
+    def run_group(
+        self,
+        cases: list[str],
+        coverage_out: Path | None,
+        interactive: bool,
+    ) -> list[tuple[str, TestResult]]:
+        """Run one configuration's cases sequentially on one checked-out VM."""
+        if not cases:
+            return []
+
+        try:
+            parsed: list[tuple[str, str, qemu.KernelConfig]] = []
+            for case in cases:
+                base_case, parsed_config = self._parse_case(case)
+                parsed.append((case, base_case, parsed_config))
+            config = parsed[0][2]
+            if any(parsed_config.id != config.id for _, _, parsed_config in parsed[1:]):
+                raise ValueError("kernel execution group contains multiple configurations")
+        except Exception as e:
+            return [
+                (case, TestResult(TestStatus.FAILED, 0, str(e), "", "bad execution group"))
+                for case in cases
+            ]
+
+        try:
+            vm: qemu.QemuVM | None = self._manager.acquire(config)
+        except Exception as e:
+            return [
+                (case, TestResult(TestStatus.FAILED, 0, str(e), "", "failed to boot VM"))
+                for case in cases
+            ]
+
+        results: list[tuple[str, TestResult]] = []
+        try:
+            for index, (case, base_case, _) in enumerate(parsed):
+                assert vm is not None
+                result = self._run_case_on_vm(
+                    base_case,
+                    config,
+                    vm,
+                    coverage_out,
+                    interactive,
+                )
+                vm_alive = vm.alive()
+                results.append((case, result))
+
+                # Preserve the manager's existing recovery behavior: a QEMU
+                # crash may cost another boot, but should not hide all of the
+                # remaining results for this configuration.
+                if index + 1 < len(parsed) and not vm_alive:
+                    self._manager.release(config, vm)
+                    vm = None
+                    try:
+                        vm = self._manager.acquire(config)
+                    except Exception as e:
+                        results.extend(
+                            (
+                                remaining_case,
+                                TestResult(
+                                    TestStatus.FAILED,
+                                    0,
+                                    str(e),
+                                    "",
+                                    "failed to replace VM",
+                                ),
+                            )
+                            for remaining_case, _, _ in parsed[index + 1 :]
+                        )
+                        break
+            return results
+        finally:
+            if vm is not None:
+                self._manager.release(config, vm)
+
+    def _run_case_on_vm(
+        self,
+        base_case: str,
+        config: qemu.KernelConfig,
+        vm: qemu.QemuVM,
+        coverage_out: Path | None,
+        interactive: bool,
+    ) -> TestResult:
         try:
             extra_gdb_args = [
                 "-ex",
@@ -220,11 +334,24 @@ class QemuSystemTestHost(GDBTestHost):
                 "PWNDBG_KERNEL_TYPE": config.image.type,
                 "PWNDBG_KERNEL_VERSION": config.image.version,
             }
-            return self._run_case(base_case, coverage_out, interactive, extra_gdb_args, extra_env)
+            result = self._run_case(
+                base_case,
+                coverage_out,
+                interactive,
+                extra_gdb_args,
+                extra_env,
+            )
+            if not vm.alive() and result.status != TestStatus.FAILED:
+                return TestResult(
+                    TestStatus.FAILED,
+                    result.duration_ns,
+                    result.stdout,
+                    result.stderr,
+                    "QEMU exited during test",
+                )
+            return result
         except Exception as e:
             return TestResult(TestStatus.FAILED, 0, str(e), "", "kernel test host error")
-        finally:
-            self._manager.release(config, vm)
 
     def _parse_case(self, case: str) -> tuple[str, qemu.KernelConfig]:
         """Split a "<pytest case>[<kernel config>]" name produced by
@@ -256,8 +383,13 @@ class QemuSystemTestHost(GDBTestHost):
             f"file {vm.config.image.vmlinux}",
             "-ex",
             f"target remote :{vm.gdb_port}",
+            # hbreak (hardware) rather than break: the guest is frozen in real
+            # mode, so rest_init's kernel address isn't mapped yet. A software
+            # breakpoint must write int3 to that address now, which fails under
+            # KVM; a hardware breakpoint sets a debug register instead and works
+            # under both KVM and TCG.
             "-ex",
-            "break *rest_init",
+            "hbreak *rest_init",
             "-ex",
             "continue",
             "-ex",

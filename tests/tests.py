@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
 from enum import Enum
 from pathlib import Path
 
@@ -102,6 +103,7 @@ def main() -> None:
         args.test_name_filter,
         args.pdb,
         force_serial or args.serial,
+        args.jobs,
         args.verbose,
         coverage_out,
     )
@@ -112,6 +114,7 @@ def run_tests_and_print_stats(
     regex_filter: str | None,
     pdb: bool,
     serial: bool,
+    jobs: int | None,
     verbose: bool,
     coverage_out: Path | None,
 ) -> None:
@@ -138,17 +141,38 @@ def run_tests_and_print_stats(
             result = host.run(test, coverage_out, pdb)
             stats.handle_test_result(test, result, verbose)
     else:
-        print("\nRunning tests in parallel")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-            for test in tests_list:
-                executor.submit(host.run, test, coverage_out, pdb).add_done_callback(
-                    # `test=test` forces the variable to bind early. This will
-                    # change the type of the lambda, however, so we have to
-                    # assure MyPy we know what we're doing.
-                    lambda future, test=test: stats.handle_test_result(  # type: ignore[misc]
-                        test, future.result(), verbose
-                    )
-                )
+        groups = host.execution_groups(tests_list)
+        max_workers = _available_cpu_count()
+        host_limit = host.max_parallelism()
+        if host_limit is not None:
+            max_workers = min(max_workers, host_limit)
+        if jobs is not None:
+            max_workers = min(max_workers, jobs)
+        max_workers = min(max_workers, max(len(groups), 1))
+
+        print(
+            f"\nRunning tests in parallel across {len(groups)} execution groups "
+            f"with up to {max_workers} workers"
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(host.run_group, group, coverage_out, pdb): group for group in groups
+            }
+            for future in concurrent.futures.as_completed(futures):
+                group = futures[future]
+                try:
+                    results = future.result()
+                except Exception:
+                    error = traceback.format_exc()
+                    results = [
+                        (
+                            test,
+                            TestResult(TestStatus.FAILED, 0, error, "", "test host error"),
+                        )
+                        for test in group
+                    ]
+                for test, result in results:
+                    stats.handle_test_result(test, result, verbose)
 
         # Return SIGINT to the default behavior.
         signal.signal(signal.SIGINT, signal.SIG_DFL)
@@ -171,6 +195,17 @@ def run_tests_and_print_stats(
         for test_case in stats.fail_tests_names:
             print(f"- {test_case}")
         sys.exit(1)
+
+
+def _available_cpu_count() -> int:
+    """Return the CPUs available to this process, respecting CPU affinity."""
+    get_affinity = getattr(os, "sched_getaffinity", None)
+    if get_affinity is not None:
+        try:
+            return max(len(get_affinity(0)), 1)
+        except OSError:
+            pass
+    return os.cpu_count() or 1
 
 
 def get_gdb_host(args: argparse.Namespace, local_pwndbg_root: Path) -> TestHost:
@@ -379,6 +414,12 @@ def parse_args() -> argparse.Namespace:
         "-s", "--serial", action="store_true", help="run tests one at a time instead of in parallel"
     )
     parser.add_argument(
+        "-j",
+        "--jobs",
+        type=_positive_int,
+        help="maximum number of parallel execution lanes",
+    )
+    parser.add_argument(
         "--nix",
         action="store_true",
         help="run tests using built for nix environment",
@@ -398,6 +439,13 @@ def parse_args() -> argparse.Namespace:
         help="clean (delete) all the test binaries",
     )
     return parser.parse_args()
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
 
 
 def make_all(path: Path, jobs: int = multiprocessing.cpu_count()) -> None:

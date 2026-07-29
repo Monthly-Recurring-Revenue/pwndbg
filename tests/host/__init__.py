@@ -144,6 +144,34 @@ class TestHost:
         """
         raise NotImplementedError()
 
+    def execution_groups(self, cases: list[str]) -> list[list[str]]:
+        """
+        Group cases into units that may run concurrently.
+
+        Cases within a group run sequentially. The default keeps the existing
+        behavior of scheduling every case independently.
+        """
+        return [[case] for case in cases]
+
+    def run_group(
+        self,
+        cases: list[str],
+        coverage_out: Path | None,
+        interactive: bool,
+    ) -> list[tuple[str, TestResult]]:
+        """
+        Run one execution group and retain each case's individual result.
+        """
+        return [(case, self.run(case, coverage_out, interactive)) for case in cases]
+
+    def max_parallelism(self) -> int | None:
+        """
+        Maximum number of execution groups this host can run concurrently.
+
+        None means that only the runner's CPU and command-line limits apply.
+        """
+        return None
+
     def collect(self) -> list[str]:
         """
         Collect the names of all the tests available to this host.

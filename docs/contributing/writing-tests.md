@@ -28,7 +28,10 @@ directory and run for a variety kernel configurations and architectures. They ca
 `./tests.sh -d gdb -g kernel`. Each test runs in its
 own GDB session attached to a QEMU virtual machine; the prebuilt kernels (built by
 [linux-exploit-dev-env](https://github.com/pwndbg/linux-exploit-dev-env)) are downloaded
-automatically on the first run. To boot one of the kernels interactively, use
+automatically on the first run. Kernel configurations run concurrently, while
+the tests for each configuration run sequentially on one VM. Use `--jobs 2` to
+compare two configuration lanes with the default limit of up to three. To boot
+one of the kernels interactively, use
 `python3 -m tests.library.qemu_system.qemu`.
 
 The unit tests are not run from within a debugger, but rather directly with pytest. They are located
@@ -37,7 +40,7 @@ directory.
 
 Here are the options supported by `./tests.sh` which you can get by running `./tests.sh --help`.
 ```
-usage: tests.py [-h] -g {gdb,lldb,dbg,cross-arch-user,kernel} -d {gdb,lldb} [-p] [-c] [-v] [-s] [--nix] [--collect-only] [--clean] [test_name_filter]
+usage: tests.py [-h] -g {gdb,lldb,dbg,cross-arch-user,kernel} -d {gdb,lldb} [-p] [-c] [-v] [-s] [-j JOBS] [--nix] [--collect-only] [--clean] [test_name_filter]
 
 Run tests.
 
@@ -52,6 +55,7 @@ options:
   -c, --cov             enable codecov
   -v, --verbose         display all test output instead of just failing test output
   -s, --serial          run tests one at a time instead of in parallel
+  -j JOBS, --jobs JOBS  maximum number of parallel execution lanes
   --nix                 run tests using built for nix environment
   --collect-only        only show the output of test collection, don't run any tests
   --clean               clean (delete) all the test binaries
