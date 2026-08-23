@@ -148,7 +148,7 @@ If porting a public tool to Pwndbg, please make a point of crediting the origina
 ## Minimum Supported Versions
 
 Our goal is to fully support all Ubuntu LTS releases that have not reached end-of-life, with support for other
-platforms on a best-effort basis. Currently that means all code should work on Ubuntu 22.04, and 24.04 with GDB
+platforms on a best-effort basis. Currently that means all code should work on Ubuntu 22.04, 24.04 and 26.04 with GDB
 12.1 and later. This means that the minimum supported Python version is 3.10, and we cannot use any newer
 Python features unless those features are backported to this minimum version.
 

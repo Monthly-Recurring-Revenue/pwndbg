@@ -73,12 +73,12 @@ Pwndbg ensures a consistent experience across both, so switching between them is
 [lldb_tracker]: https://github.com/pwndbg/pwndbg/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22LLDB%20Port%22
 
 ### Compatibility Table
-| Feature     | Supported Version               | Notes                                |
-|-------------|---------------------------------|--------------------------------------|
-| pwndbg-gdb  | - Python 3.10+ <br/>- GDB 12.1+ | Battle-tested on Ubuntu 22.04/24.04  |
-| pwndbg-lldb | - Python 3.12+ <br/>- LLDB 19+  | Experimental/early-stage support     |
-| qemu-user   | QEMU 8.1+                       | vFile API is needed for vmmap        |
-| qemu-system | QEMU 6.2+                       | Supported version since Ubuntu 22.04 |
+| Feature     | Supported Version               | Notes                                     |
+|-------------|---------------------------------|-------------------------------------------|
+| pwndbg-gdb  | - Python 3.10+ <br/>- GDB 12.1+ | Battle-tested on Ubuntu 22.04/24.04/26.04 |
+| pwndbg-lldb | - Python 3.12+ <br/>- LLDB 19+  | Experimental/early-stage support          |
+| qemu-user   | QEMU 8.1+                       | vFile API is needed for vmmap             |
+| qemu-system | QEMU 6.2+                       | Supported version since Ubuntu 22.04      |
 
 
 ## Contributing

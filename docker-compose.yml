@@ -43,6 +43,16 @@ services:
     volumes:
       - .:/pwndbg
 
+  ubuntu26.04:
+    <<: *base-spec
+    image: ghcr.io/pwndbg/pwndbg:ubuntu26.04
+    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        image: ubuntu:26.04
+
   debian12:
     <<: *base-spec
     image: ghcr.io/pwndbg/pwndbg:debian12

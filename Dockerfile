@@ -1,6 +1,6 @@
 # This dockerfile was created for development & testing purposes, for APT-based distros.
 # images available:
-#   ubuntu24.04 | ubuntu22.04 | debian12
+#   ubuntu26.04 | ubuntu24.04 | ubuntu22.04 | debian12
 #
 # Run using prebuilt image (pulls image and bind-mounts working dir into /pwndbg):
 #   docker compose run --rm -v $(pwd):/pwndbg ubuntu24.04
