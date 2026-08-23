@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - ubuntu-26.04-ci
   pull_request:
 
 concurrency:
@@ -92,7 +93,7 @@ jobs:
           docker buildx build \
             --load \
             --cache-from type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-amd64 \
-            ${{ github.event_name == 'push' && format('--cache-to type=registry,ref=ghcr.io/pwndbg/cache:{0}-amd64,mode=max', matrix.image) || '' }} \
+            ${{ false && format('--cache-to type=registry,ref=ghcr.io/pwndbg/cache:{0}-amd64,mode=max', matrix.image) || '' }} \
             -f ${{ matrix.dockerfile }} \
             --build-arg image=${{ matrix.base }} \
             -t ghcr.io/pwndbg/pwndbg:${{ matrix.image }}-amd64 \
@@ -136,7 +137,7 @@ jobs:
           '
 
       - name: Push full image to registry
-        if: ${{ !cancelled() && github.event_name == 'push' && steps.build.outcome == 'success' }}
+        if: false
         run: docker push ghcr.io/pwndbg/pwndbg:${{ matrix.image }}-amd64
 
   docker_aarch64:
@@ -191,7 +192,7 @@ jobs:
           docker buildx build \
             --load \
             --cache-from type=registry,ref=ghcr.io/pwndbg/cache:${{ matrix.image }}-arm64 \
-            ${{ github.event_name == 'push' && format('--cache-to type=registry,ref=ghcr.io/pwndbg/cache:{0}-arm64,mode=max', matrix.image) || '' }} \
+            ${{ false && format('--cache-to type=registry,ref=ghcr.io/pwndbg/cache:{0}-arm64,mode=max', matrix.image) || '' }} \
             -f ${{ matrix.dockerfile }} \
             --build-arg image=${{ matrix.base }} \
             -t ghcr.io/pwndbg/pwndbg:${{ matrix.image }}-arm64 \
@@ -234,12 +235,12 @@ jobs:
           '
 
       - name: Push full image to registry
-        if: ${{ !cancelled() && github.event_name == 'push' && steps.build.outcome == 'success' }}
+        if: false
         run: docker push ghcr.io/pwndbg/pwndbg:${{ matrix.image }}-arm64
 
   create_manifest:
     needs: [docker_x86-64, docker_aarch64]
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Set up Docker Buildx

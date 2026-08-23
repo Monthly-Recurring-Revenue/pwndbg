@@ -1,5 +1,8 @@
 name: Lint
 on:
+  push:
+    branches:
+      - ubuntu-26.04-ci
   pull_request:
 
 concurrency:
