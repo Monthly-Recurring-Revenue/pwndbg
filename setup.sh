@@ -22,7 +22,8 @@ osx() {
 
 install_apt() {
     sudo apt-get update || true
-    sudo apt-get install -y git gdb gdbserver python3-dev python3-venv python3-setuptools
+    # gcc/g++/make are needed to build deps that ship no wheel for the distro python (e.g. jpype1 on 3.14)
+    sudo apt-get install -y git gdb gdbserver python3-dev python3-venv python3-setuptools gcc g++ make
     sudo apt-get install -y libc6-dbg
 }
 
