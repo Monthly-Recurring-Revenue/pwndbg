@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from . import get_binary
 from .utils import run_gdb_with_script
 
 can_attach = False
@@ -36,15 +37,14 @@ REASON_CANNOT_ATTACH = (
 FLAG = "1"
 DEFAULT_SLEEP = "10"
 
+SLEEPER_BINARY = get_binary("sleeper.native.out")
+
 
 @pytest.fixture
 def launched_sleep_binary():
+    # Copied under a unique name so the tests can resolve it by process name
     path = tempfile.mktemp()
-    sleep_path = shutil.which("sleep")
-    if not sleep_path:
-        raise RuntimeError("Could not find the 'sleep' binary in PATH.")
-
-    shutil.copy(sleep_path, path)
+    shutil.copy(SLEEPER_BINARY, path)
 
     # Add a default sleep time so the process lives for at least the length of the test
     process = subprocess.Popen([path, DEFAULT_SLEEP], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
